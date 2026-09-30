@@ -26,9 +26,9 @@
     role="presentation"
     onclick={(event) => event.currentTarget === event.target && (open = false)}
   >
-    <section
+    <dialog
+      open
       class="w-full max-w-md rounded-[2rem] border-4 border-haven-brown-dark bg-haven-brown-light p-6 text-center shadow-[0_1rem_0_rgba(100,55,30,0.25)] sm:p-10"
-      role="dialog"
       aria-modal="true"
       aria-labelledby="language-title"
     >
@@ -51,6 +51,6 @@
           中文
         </button>
       </div>
-    </section>
+    </dialog>
   </div>
 {/if}

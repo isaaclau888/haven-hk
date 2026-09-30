@@ -1,6 +1,7 @@
 # build output
 build/
 .svelte-kit/
+.vercel/
 
 # dependencies
 node_modules/
