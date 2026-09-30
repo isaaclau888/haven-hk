@@ -5,7 +5,7 @@
 
   type Props = {
     cities: City[];
-    /** Absolute URL of the .pmtiles archive, without the pmtiles:// prefix. */
+    /** URL of the .pmtiles archive, without the pmtiles:// prefix. */
     tilesUrl?: string;
     /** Glyph and sprite root. Point this at your own CDN in production. */
     assetsUrl?: string;
@@ -19,7 +19,7 @@
 
   let {
     cities,
-    tilesUrl = 'https://haven.hackclub-assets.com/planet_z7.pmtiles',
+    tilesUrl = '/api/map/tiles',
     assetsUrl = 'https://protomaps.github.io/basemaps-assets',
     accent = '#FC8616',
     pinImageUrl = '/images/map-flag.png',
@@ -42,7 +42,9 @@
       handle = createHavenMap({
         container,
         cities,
-        tilesUrl,
+        tilesUrl: tilesUrl.startsWith('/')
+          ? new URL(tilesUrl, window.location.origin).toString()
+          : tilesUrl,
         assetsUrl,
         accent,
         pinImageUrl,
