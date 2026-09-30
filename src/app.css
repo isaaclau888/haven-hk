@@ -1,0 +1,333 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display:
+    "Darumadrop One", "Jua Extras", "Jua", ui-rounded, system-ui, sans-serif;
+  --font-body: "Jua Extras", "Jua", ui-rounded, system-ui, sans-serif;
+
+  --color-haven-green: #b8c220;
+  --color-haven-green-deep: #97a01a;
+  --color-haven-orange-deep: #ed5615;
+  --color-haven-orange-bright: #fa681b;
+  --color-haven-orange-mid: #fc8616;
+  --color-haven-yellow: #ffd059;
+  --color-haven-butter: #ffe382;
+  --color-haven-gold: #fba71f;
+  --color-haven-brown-dark: #b8774a;
+  --color-haven-brown-light: #dda47d;
+  --color-haven-blue-deep: #2cbf90;
+
+  --font-display-zh:
+    "Darumadrop One", "GenSenRounded", ui-rounded, system-ui, sans-serif;
+  --font-body-zh:
+    "Jua Extras", "Jua", "GenWanMin", ui-rounded, system-ui, sans-serif;
+
+  --text-hero: clamp(2rem, 5vw, 10rem);
+  --text-hero--line-height: 0.82;
+  --text-hero--letter-spacing: -0.05em;
+
+  --text-display: clamp(2rem, 4.6vw, 3.75rem);
+  --text-display--line-height: 0.85;
+  --text-display--letter-spacing: -0.05em;
+
+  --text-heading: clamp(1.5rem, 3vw, 2.75rem);
+  --text-heading--line-height: 0.8;
+  --text-heading--letter-spacing: -0.05em;
+
+  --text-subheading: clamp(1.25rem, 2vw, 2rem);
+  --text-subheading--line-height: 1.2;
+  --text-subheading--letter-spacing: -0.03em;
+
+  --text-lead: clamp(1.0625rem, 1.5vw, 1.5625rem);
+  --text-lead--line-height: 1.25;
+  --text-lead--letter-spacing: -0.03em;
+
+  --text-copy: clamp(0.75rem, 1.3vw, 1.3rem);
+  --text-copy--line-height: 1.2;
+  --text-copy--letter-spacing: -0.03em;
+
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/*
+ * Accented letters, curly quotes, dashes and the like, which Jua lacks (or, for
+ * “ ”, draws as single ticks). Built by scripts/build-jua-extras.py, which also
+ * prints this unicode-range; the file is only fetched when a page uses one.
+ */
+@font-face {
+  font-family: "Jua Extras";
+  src: url("/fonts/jua-extras.woff2") format("woff2");
+  font-display: swap;
+  unicode-range:
+    U+60, U+A1-AC, U+AE-17E, U+18F, U+192, U+1CD-1CE, U+1D4, U+218-21B, U+237,
+    U+259, U+2C6-2CC, U+2D8-2DD, U+1E9E, U+1EA0-1EF9, U+2010, U+2012-2015,
+    U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2032-2033,
+    U+2039-203A, U+2044, U+20AC, U+20B9, U+2122, U+2212, U+2248, U+2260,
+    U+2264-2265;
+}
+
+@font-face {
+  font-family: "GenSenRounded";
+  src: url("/fonts/GenSenRounded.otf") format("opentype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GenWanMin";
+  src: url("/fonts/GenWanMin.otf") format("opentype");
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --logo-w: clamp(8rem, 10vw, 12rem);
+    --logo-top: clamp(2.5rem, 3vw, 3.75rem);
+    --logo-h: calc(var(--logo-w) * 445 / 778);
+    --logo-gap: clamp(2rem, 2.5vw, 3rem);
+  }
+
+  @media (width >= 40rem) {
+    :root {
+      --logo-gap: 0rem;
+    }
+  }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5.5rem;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-haven-green);
+    font-family: var(--font-body);
+    color: var(--color-haven-orange-deep);
+    overflow-x: clip;
+  }
+
+  html[data-language="zh"] {
+    --font-display: var(--font-display-zh);
+    --font-body: var(--font-body-zh);
+  }
+
+  html[data-language="zh"] .haven-nav-link {
+    font-size: clamp(0.7rem, 2.35vw, 4.75rem);
+  }
+
+  html[data-language="zh"] .hero-tagline {
+    font-size: clamp(0.85rem, 3.2vw, 6rem);
+    line-height: clamp(1rem, 3.8vw, 4.5rem);
+  }
+
+  html[data-language="zh"] .sponsors-heading {
+    transform: translateY(clamp(0.75rem, 1.4vw, 1.25rem));
+  }
+
+  html[data-language="zh"] .pitch-heading {
+    max-width: none;
+    white-space: nowrap;
+    font-size: clamp(0.6rem, 1.8vw, 1.8rem);
+  }
+
+  @media (width >= 48rem) {
+    html[data-language="zh"] .pitch-heading {
+      font-size: 2.1cqw;
+    }
+  }
+
+  @media (width >= 40rem) {
+    html[data-language="zh"] .hero-tagline {
+      font-size: clamp(1rem, 1.6vw, 3rem);
+      line-height: clamp(1.25rem, 2.2vw, 4rem);
+    }
+  }
+
+  img {
+    display: block;
+    max-width: 100%;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-haven-yellow);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .shell {
+    margin-inline: auto;
+  }
+
+  .stage {
+    background-repeat: no-repeat;
+    background-position: top center;
+    background-size: 100% auto;
+    background-color: var(--color-haven-green);
+    aspect-ratio: var(--stage-ratio);
+  }
+
+  @media (width >= 48rem) {
+    .stage {
+      container-type: inline-size;
+      position: relative;
+      margin-inline: auto;
+      aspect-ratio: var(--stage-ratio);
+    }
+  }
+
+  /* `--stage-bg` and `--stage-bg-mobile` let a city page swap the backdrop it
+     is drawn on; unset, each stage keeps its own illustration. */
+  .stage-middle {
+    --stage-ratio: 1440 / 4500;
+    background-image: var(
+      --stage-bg-mobile,
+      url("/images/middle/mid-phone-bg.webp")
+    );
+  }
+
+  @media (width >= 40rem) {
+    .stage-middle {
+      --stage-ratio: 1440 / 4000;
+      background-image: var(
+        --stage-bg-mobile,
+        url("/images/middle/mid-phone-bg.webp")
+      );
+    }
+  }
+
+  @media (width >= 48rem) {
+    .stage-middle {
+      --stage-ratio: 1440 / 2100;
+      background-image: var(--stage-bg, url("/images/bg-middle.webp"));
+      background-size: cover;
+    }
+  }
+
+  .stage-picnic {
+    --stage-ratio: 1440 / 4329;
+    background-image: var(
+      --stage-bg-mobile,
+      url("/images/middle/picnic-bg-mobile.webp")
+    );
+    aspect-ratio: none;
+    background-size: cover;
+  }
+
+  @media (width >= 48rem) {
+    .stage-picnic {
+      --stage-ratio: 1440 / 1067;
+      background-image: var(--stage-bg, url("/images/middle/picnic-bg.webp"));
+    }
+  }
+
+  .rule-frame {
+    position: relative;
+    --frame-color: var(--color-haven-yellow);
+    --frame-weight: 3px;
+    --frame-offset: 1rem;
+    --frame-gap: 1rem;
+  }
+
+  .rule-frame::before,
+  .rule-frame::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    background-repeat: no-repeat;
+    background-image:
+      linear-gradient(var(--frame-color), var(--frame-color)),
+      linear-gradient(var(--frame-color), var(--frame-color));
+  }
+
+  .rule-frame::before {
+    inset: var(--frame-offset) calc(var(--frame-offset) + var(--frame-gap));
+    background-size: 100% var(--frame-weight);
+    background-position:
+      left top,
+      left bottom;
+  }
+
+  .rule-frame::after {
+    inset: calc(var(--frame-offset) + var(--frame-gap)) var(--frame-offset);
+    background-size: var(--frame-weight) 100%;
+    background-position:
+      left top,
+      right top;
+  }
+
+  .panel {
+    background: rgb(255 255 255 / 0.8);
+    border-radius: 1.2rem;
+  }
+
+  .marker {
+    background-color: var(--color-haven-yellow);
+    border-radius: 0.45em;
+    padding: 0.1em 0.3em;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  .speech {
+    position: relative;
+    background: #fff;
+    border-radius: 1.875rem;
+  }
+
+  .speech::after {
+    content: "";
+    position: absolute;
+    width: var(--tail-size, 0);
+    aspect-ratio: 196 / 125;
+    rotate: var(--tail-rotate, 0deg);
+    inset-block-start: var(--tail-top, auto);
+    inset-block-end: var(--tail-bottom, auto);
+    inset-inline-start: var(--tail-left, auto);
+    inset-inline-end: var(--tail-right, auto);
+  }
+
+  @media (width < 48rem) {
+    .speech::after {
+      display: none;
+    }
+  }
+
+  .polaroid {
+    background: rgb(237 86 21 / 0.85);
+    border: 3px solid var(--color-haven-yellow);
+    border-radius: 1.875rem;
+    box-shadow: 0 0 4px var(--color-haven-yellow);
+    rotate: var(--tilt, -5deg);
+    transition:
+      rotate 250ms var(--ease-bounce),
+      translate 250ms var(--ease-bounce);
+  }
+
+  .polaroid:hover,
+  .polaroid:focus-within {
+    rotate: 0deg;
+    translate: 0 -0.375rem;
+  }
+
+  .glow-orange {
+    text-shadow: 0 0 4px var(--color-haven-orange-deep);
+  }
+
+  .glow-yellow {
+    text-shadow: 0 0 10px var(--color-haven-yellow);
+  }
+}
