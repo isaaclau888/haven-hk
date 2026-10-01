@@ -7,7 +7,7 @@
   import SignupForm from "./SignupForm.svelte";
   import VideoPanel from "./VideoPanel.svelte";
 
-  const ORGANIZE_PATH = "/api/auth/redirect";
+  const ORGANIZE_PATH = "https://haven.hackclub.com/api/auth/redirect";
 
   interface Props {
     title?: readonly string[];
