@@ -11,7 +11,7 @@ import type {
 export const meta = {
   title: "Haven — Hong Kong",
   description:
-    "Hack Club Haven is a global event for hundreds of teenagers to organize their own game jams",
+    "Hack Club Haven is a global game jam in 200+ cities worldwide for teenagers 13-18",
   image: "/images/haven-logo-color.webp",
 } as const;
 
