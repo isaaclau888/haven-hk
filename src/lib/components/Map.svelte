@@ -19,7 +19,7 @@
 
   let {
     cities,
-    tilesUrl = 'https://github.com/isaaclau888/haven-hk/releases/download/v1.0.0/planet_z7.pmtiles',
+    tilesUrl = '/api/map/tiles',
     assetsUrl = 'https://protomaps.github.io/basemaps-assets',
     accent = '#FC8616',
     pinImageUrl = '/images/map-flag.png',
