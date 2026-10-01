@@ -19,7 +19,7 @@
 
   let {
     cities,
-    tilesUrl = '/api/map/tiles',
+    tilesUrl = 'https://haven.hackclub-assets.com/planet_z7.pmtiles',
     assetsUrl = 'https://protomaps.github.io/basemaps-assets',
     accent = '#FC8616',
     pinImageUrl = '/images/map-flag.png',
@@ -146,5 +146,9 @@
     margin: 0 0 0.5rem;
     font-size: 0.8rem;
     opacity: 0.7;
+  }
+
+  :global(.maplibregl-popup-close-button) {
+    right: 0.5rem;
   }
 </style>
