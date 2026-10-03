@@ -53,6 +53,7 @@ export const imageDefaults = {
   stepsBackground: "/images/steps/step-bg-desktop.webp",
   stepsBackgroundPoc: "/images/steps/step-poc-bg-desktop.webp",
   stepsBackgroundMobile: "/images/steps/step-bg-mobile.webp",
+  stepsBackgroundPocMobile: "/images/steps/step-poc-bg-mobile.webp",
 
   // Schedule
   scheduleTrail: "/images/schedule/trail-w.webp",
