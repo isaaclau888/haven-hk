@@ -1,15 +1,20 @@
 <script lang="ts">
   // Who Hack Club is, and where to find it: the same on every page, and not
   // something a city page may reword. Only the artwork here is overridable.
-  import { footerBody, footerLinks } from "$lib/data/content";
+  import { footerBody as defaultFooterBody, footerLinks } from "$lib/data/content";
   import { defaultSiteData } from "$lib/data/site";
   import type { SiteImages } from "$lib/data/images";
+  import type { Linked } from "$lib/data/types";
 
   interface Props {
     images?: SiteImages;
+    body?: Linked[];
   }
 
-  let { images = defaultSiteData.images }: Props = $props();
+  let {
+    images = defaultSiteData.images,
+    body = defaultFooterBody,
+  }: Props = $props();
 </script>
 
 <footer
@@ -58,7 +63,7 @@
     <div
       class="flex flex-col gap-4 font-body text-[clamp(0.5rem,1.65vw,1rem)] leading-[1.4] md:pt-[clamp(1rem,3vw,2rem)]"
     >
-      {#each footerBody as paragraph, i (i)}
+      {#each body as paragraph, i (i)}
         <p>{#each paragraph as seg}{#if seg.href}<a
                 class="underline decoration-from-font underline-offset-2 hover:text-haven-yellow"
                 href={seg.href}

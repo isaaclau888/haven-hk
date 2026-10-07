@@ -1,5 +1,5 @@
 import { pastEvents, perks } from "./content";
-import type { FaqItem, PastEvent, PitchItem, Perk } from "./types";
+import type { FaqItem, Linked, PastEvent, PitchItem, Perk } from "./types";
 
 const HAVEN_EMAIL = "mailto:hong-kong@haven.hackclub.com";
 
@@ -96,6 +96,53 @@ const translatedPastEvents: PastEvent[] = pastEvents.map((event, index) => ({
   ][index] ?? event.alt,
 }));
 
+const translatedFooterBody: Linked[] = [
+  [
+    {
+      text: "Hack Club 是一個 501(c)(3) 非牟利組織，也是由 10 萬多名熱愛科技的高中生組成的網絡。我們相信，動手創作是最好的學習方式，因此我們建立社群並提供資助，讓你創作出精彩的作品。過去幾年，我們曾",
+    },
+    {
+      text: "派 30 名青少年黑客徒步走太平洋山脊步道",
+      href: "https://www.youtube.com/watch?v=ufMUJ9D1fi8",
+    },
+    { text: "、" },
+    {
+      text: "舉辦最爛點子黑客松",
+      href: "https://www.youtube.com/watch?v=8iM1W8kXrQA",
+    },
+    { text: "，以及" },
+    {
+      text: "在 GitHub 總部舉辦最大型的青少年硬件黑客松",
+      href: "https://www.youtube.com/watch?v=kaEFv7e49mo",
+    },
+    { text: "。" },
+  ],
+  [
+    { text: "在" },
+    {
+      text: "《華爾街日報》",
+      href: "https://www.wsj.com/articles/teen-hackers-try-to-convince-parents-they-are-up-to-good-11569922200",
+    },
+    { text: "、" },
+    {
+      text: "CBS News",
+      href: "https://www.cbsnews.com/sanfrancisco/news/hack-club-hosts-teen-coders-san-francisco/",
+    },
+    { text: "和" },
+    {
+      text: "NASA.gov",
+      href: "https://www.nasa.gov/learning-resources/space-out-this-summer-with-variety-of-nasa-stem-activities/",
+    },
+    { text: "閱讀關於 Hack Club 的報道，或觀看我們" },
+    {
+      text: "在 CES 與 AMD 行政總裁 Lisa Su 同台",
+      href: "https://www.youtube.com/live/UbfAhFxDomE?si=5DiK1_hGqKrB_r50&t=7033",
+    },
+    { text: "。" },
+  ],
+  [{ text: "由青少年為青少年製作，Hack Club 用 ♥ 打造" }],
+];
+
 export const chineseContent = {
   tagline: ["為 13 至 18 歲青少年而設的遊戲開發活動", "Nov 14–15, 2026 · Hong Kong"],
   about: {
@@ -126,6 +173,7 @@ export const chineseContent = {
     ],
     items: translatedPastEvents,
   },
+  footerBody: translatedFooterBody,
   faq: {
     heading: "常見問題",
     cta: "報名！",

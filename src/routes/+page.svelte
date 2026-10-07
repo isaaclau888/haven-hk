@@ -18,6 +18,7 @@
     faqs,
     faqCta,
     faqHeading,
+    footerBody,
     pitchHeading,
     pitches,
     pastEvents,
@@ -43,6 +44,7 @@
       steps: { heading: stepsHeading, subheading: stepsSubheading },
       schedule: { heading: scheduleHeading, tbd: scheduleTbd },
       sponsorsHeading,
+      footerBody,
       pastEvents: { heading: pastEventsHeading, items: pastEvents },
       faq: { heading: faqHeading, cta: faqCta, items: faqs },
     },
@@ -92,7 +94,7 @@
   </div>
 
   <div class="stage stage-picnic">
-    <PastEvents heading={localized.pastEvents.heading} items={localized.pastEvents.items} />
+    <PastEvents heading={[...localized.pastEvents.heading]} items={localized.pastEvents.items} />
   </div>
 
   <Sponsors heading={localized.sponsorsHeading} items={supporters} />
@@ -100,4 +102,4 @@
   <Faq heading={localized.faq.heading} cta={localized.faq.cta} items={localized.faq.items} />
 </main>
 
-<SiteFooter />
+<SiteFooter body={language === "zh" ? localized.footerBody : undefined} />
