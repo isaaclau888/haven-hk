@@ -75,7 +75,7 @@
       aria-hidden="true"
       class="absolute scale-[-1] bottom-0 w-full object-cover translate-y-[20%] md:translate-y-[40%]"
     />
-    <div>
+    <div class="pointer-events-none">
       <img
         src={images.sponsorsBushSmall}
         alt=""
@@ -125,7 +125,7 @@
         />
       {/if}
     </div>
-    <div>
+    <div class="pointer-events-none">
       <img
         src={images.sponsorsBushSmall}
         alt=""
@@ -175,7 +175,7 @@
     </div>
     <div class="pb-[clamp(8rem,20vw,40rem)]">
       <div
-        class="absolute grid grid-cols-[1fr_auto_1fr] z-25 left-1/2 -translate-x-1/2 h-[clamp(2rem,7vw,5rem)] gap-[clamp(1rem,8vw,8rem)]"
+        class="pointer-events-none absolute grid grid-cols-[1fr_auto_1fr] z-25 left-1/2 -translate-x-1/2 h-[clamp(2rem,7vw,5rem)] gap-[clamp(1rem,8vw,8rem)]"
       >
         <img
           src={images.sponsorsHouseLeft}
