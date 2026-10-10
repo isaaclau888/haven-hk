@@ -266,6 +266,30 @@ export const supportersHeading = "Our sponsors";
 
 export const supporters: Sponsor[] = [
   {
+    name: "BSD Education",
+    href: "https://bsd.education/",
+    image: "/images/sponsors/logos/BSD Education Logo - In Shape.png",
+    tier: "Gold",
+  },
+  {
+    name: "EasyEDA",
+    href: "https://easyeda.com/",
+    image: "/images/sponsors/logos/EasyEDA.png",
+    tier: "Gold",
+  },
+  {
+    name: "JLCPCB",
+    href: "https://jlcpcb.com/",
+    image: "/images/sponsors/logos/JLCPCB.png",
+    tier: "Gold",
+  },
+  {
+    name: "PCBWay",
+    href: "https://www.pcbway.com/",
+    image: "/images/sponsors/logos/PCBWay.jpg",
+    tier: "Gold",
+  },
+  {
     name: "CodeCrafters",
     href: "https://codecrafters.io/",
     image: "/images/sponsors/logos/CodeCrafters.png",
