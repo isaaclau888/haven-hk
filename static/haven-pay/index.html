@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Haven Pay · Haven Hong Kong</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Darumadrop+One&family=Jua&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#170D0A">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Haven Pay">
+</head>
+<body>
+<div id="loadingScreen">
+  <div class="loading-mark">H</div>
+  <div class="loading-title">Haven Pay</div>
+  <div class="loading-spinner"></div>
+</div>
+<div id="shell">
+  <aside id="sidebar">
+    <div class="sidebar-brand"><div class="mark">H</div><span>Haven Pay</span></div>
+    <nav id="sidebarNav"></nav>
+    <div class="sidebar-foot" id="sidebarFoot"></div>
+  </aside>
+  <div id="mainpane">
+    <div id="statusbar">
+      <span id="clock" class="mono">--:--</span>
+    </div>
+    <div id="appheader">
+      <div class="brand"><div class="mark">H</div><span>Haven Pay</span></div>
+      <button class="avatar-btn" id="headerAvatarBtn">🙂</button>
+    </div>
+    <div id="pageContent"></div>
+  </div>
+  <div id="bottomnav"></div>
+  <div id="toast"></div>
+  <button class="fab" id="fabBtn" style="display:none;">+</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="firebaseConfig.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -6,6 +6,7 @@ import { env } from "$env/dynamic/private";
 import { listRecords } from "./airtable";
 import { siteDataJsonSchema, type SiteDataInput } from "$lib/data/types";
 import type { City } from "$lib/map";
+import type { EventVenue } from "$lib/data/types";
 
 /**
  * Field ids in the "Events" table of the "YSWS - Haven" base. Ids rather than
@@ -19,6 +20,9 @@ const FIELDS = {
   longitude: "fldwx4BdUQw9yHGSp",
   status: "fldP2oeMSijEs3FnR",
   websiteData: "fldML1eUwOBMwWyoy",
+  venueName: "fld0ywmQd0TUG2Pp4",
+  venueAddress: "fldq1OuikFjgW7bqY",
+  venueIsPrivate: "fldcs5RSE00sZ9p4",
 } as const;
 
 /**
@@ -40,6 +44,7 @@ export interface HavenEvent {
   longitude: number;
   /** The city page's copy, as the JSON string Airtable stores it in. */
   websiteData: string | null;
+  venue?: EventVenue | null;
 }
 
 /**
@@ -71,6 +76,31 @@ function selectName(value: unknown): string | null {
     if (typeof name === "string") return name;
   }
   return null;
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function lookup(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function oneLineAddress(value: unknown): string | null {
+  const seen = new Set<string>();
+  const parts = (text(value) ?? "")
+    .split(/\s*[\n,]\s*/)
+    .map(text)
+    .filter((part): part is string => {
+      if (!part || seen.has(part.toLowerCase())) return false;
+      seen.add(part.toLowerCase());
+      return true;
+    });
+  return parts.length ? parts.join(", ") : null;
+}
+
+function isPrivateVenue(fields: Record<string, unknown>): boolean {
+  return lookup(fields[FIELDS.venueIsPrivate]).some((value) => value === true);
 }
 
 /**
@@ -114,6 +144,15 @@ export async function syncEvents(): Promise<number> {
       latitude: record.fields[FIELDS.latitude] as number,
       longitude: record.fields[FIELDS.longitude] as number,
       websiteData: (record.fields[FIELDS.websiteData] as string) || null,
+      ...(isPrivateVenue(record.fields)
+        ? { venueName: null, venueAddress: null, venueIsPrivate: true }
+        : {
+            venueName: text(lookup(record.fields[FIELDS.venueName])[0]),
+            venueAddress: oneLineAddress(
+              lookup(record.fields[FIELDS.venueAddress])[0],
+            ),
+            venueIsPrivate: false,
+          }),
       syncedAt: new Date(),
     }));
 
@@ -144,6 +183,9 @@ export async function syncEvents(): Promise<number> {
           latitude: sql`excluded."latitude"`,
           longitude: sql`excluded."longitude"`,
           websiteData: sql`excluded."websiteData"`,
+          venueName: sql`excluded."venueName"`,
+          venueAddress: sql`excluded."venueAddress"`,
+          venueIsPrivate: sql`excluded."venueIsPrivate"`,
           syncedAt: sql`excluded."syncedAt"`,
         },
       });
@@ -164,6 +206,9 @@ export async function getEvents(): Promise<HavenEvent[]> {
       latitude: eventsTable.latitude,
       longitude: eventsTable.longitude,
       websiteData: eventsTable.websiteData,
+      venueName: eventsTable.venueName,
+      venueAddress: eventsTable.venueAddress,
+      venueIsPrivate: eventsTable.venueIsPrivate,
     })
     .from(eventsTable)
     .orderBy(asc(eventsTable.name));
@@ -192,12 +237,23 @@ export async function getEventBySlug(slug: string): Promise<HavenEvent | null> {
       latitude: eventsTable.latitude,
       longitude: eventsTable.longitude,
       websiteData: eventsTable.websiteData,
+      venueName: eventsTable.venueName,
+      venueAddress: eventsTable.venueAddress,
+      venueIsPrivate: eventsTable.venueIsPrivate,
     })
     .from(eventsTable)
     .where(eq(eventsTable.slug, slug))
     .limit(1);
 
-  return row ?? null;
+  if (!row) return null;
+  return {
+    ...row,
+    venue: row.venueIsPrivate
+      ? undefined
+      : row.venueName
+        ? { name: row.venueName, address: row.venueAddress }
+        : null,
+  };
 }
 
 /**

@@ -12,6 +12,7 @@
   import SiteFooter from "$lib/components/SiteFooter.svelte";
   import Sponsors from "$lib/components/Sponsors.svelte";
   import Schedule from "$lib/components/Schedule.svelte";
+  import type { EventVenue } from "$lib/data/types";
   import {
     about,
     event,
@@ -51,6 +52,14 @@
   };
 
   const localized = $derived(language === "zh" ? chineseContent : englishContent.en);
+  const venue = $derived<EventVenue>({
+    name:
+      language === "zh"
+        ? "香港加拿大國際學校"
+        : "Canadian International School of Hong Kong",
+    address: null,
+  });
+  const venueLink = "https://maps.app.goo.gl/NvxtjhjnfmvrtzD47";
 
   $effect(() => {
     document.documentElement.dataset.language = language;
@@ -74,6 +83,8 @@
       signupUrl={data.signupUrl}
       referral={data.referral}
       cities={data.cities}
+      {venue}
+      {venueLink}
       signup={language === "zh" ? { placeholder: "you@hackclub.com", button: "報名！" } : undefined}
       mapLabel={language === "zh" ? "尋找附近的活動" : undefined}
       scrollLabel={language === "zh" ? "更多資訊" : undefined}

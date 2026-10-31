@@ -87,6 +87,9 @@ export const eventsTable = pgTable(
     longitude: doublePrecision().notNull(),
     syncedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     websiteData: text(),
+    venueName: text(),
+    venueAddress: text(),
+    venueIsPrivate: boolean().notNull().default(false),
   },
   (table) => [uniqueIndex().on(table.slug)],
 );

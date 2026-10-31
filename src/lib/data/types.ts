@@ -165,6 +165,11 @@ export interface SiteData {
     organizeCta: string;
     mapLabel: string;
     scrollLabel: string;
+    contact?: string;
+    contactEmail?: string;
+    venue?: EventVenue | null;
+    venueTbd: string;
+    venueLink?: string;
     signup: { placeholder: string; button: string };
   };
   about: { title: string; body: string; perks: Perk[] };
@@ -181,6 +186,11 @@ export interface SiteData {
   images: SiteImages;
   /** Only the roles a page overrides; the rest keep Haven's fonts. */
   fonts: SiteFonts;
+}
+
+export interface EventVenue {
+  name: string;
+  address: string | null;
 }
 
 /**

@@ -4,6 +4,7 @@
   import { cssUrl, type SiteImages } from "$lib/data/images";
   import HavenMap from "$lib/components/Map.svelte";
   import type { City } from "$lib/map";
+  import type { EventVenue } from "$lib/data/types";
   import SignupForm from "./SignupForm.svelte";
   import VideoPanel from "./VideoPanel.svelte";
 
@@ -24,6 +25,9 @@
     mapLabel?: string;
     /** Caption on the arrow down to the rest of the page. */
     scrollLabel?: string;
+    venue?: EventVenue | null;
+    venueTbd?: string;
+    venueLink?: string;
     signup?: { placeholder: string; button: string };
     images?: SiteImages;
   }
@@ -40,6 +44,9 @@
       : defaultSiteData.hero.organizeCta,
     mapLabel = defaultSiteData.hero.mapLabel,
     scrollLabel = defaultSiteData.hero.scrollLabel,
+    venue,
+    venueTbd = defaultSiteData.hero.venueTbd,
+    venueLink,
     signup = defaultSiteData.hero.signup,
     images = defaultSiteData.images,
   }: Props = $props();
@@ -99,6 +106,14 @@
 
   const formAction = $derived(signupAction ?? ORGANIZE_PATH);
 
+  const venueMapUrl = $derived.by(() => {
+    if (!venue) return undefined;
+    if (venueLink) return venueLink;
+    return venue.address
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${venue.name}, ${venue.address}`)}`
+      : undefined;
+  });
+
   const organizeHref = $derived(
     emailValid && email
       ? `${ORGANIZE_PATH}?email=${encodeURIComponent(email)}`
@@ -146,6 +161,21 @@
             <span class={i === 0 ? "whitespace-nowrap" : "block"}>{part}</span>
           {/each}
         </p>
+
+        {#if venue !== undefined}
+          <svelte:element
+            this={venueMapUrl ? "a" : "p"}
+            href={venueMapUrl}
+            target={venueMapUrl ? "_blank" : undefined}
+            rel={venueMapUrl ? "noopener noreferrer" : undefined}
+            class="pointer-events-auto glow-orange mt-[clamp(0.75rem,1.5vw,1.5rem)] flex items-start gap-2 font-body text-start text-[clamp(0.9rem,3.5vw,1.25rem)] text-white sm:ml-[clamp(1rem,3vw,8rem)] sm:text-[clamp(0.9rem,1.4vw,1.75rem)] {venueMapUrl ? 'underline decoration-from-font underline-offset-4 transition-opacity hover:opacity-80' : ''}"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" class="mt-[0.15em] size-[1em] shrink-0">
+              <path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5Z" />
+            </svg>
+            <span>{venue?.name ?? venueTbd}</span>
+          </svelte:element>
+        {/if}
 
         <SignupForm
           {poc}
