@@ -306,6 +306,16 @@ export const supporters: Sponsor[] = [
     href: "https://hackclub.com/",
     image: "/images/sponsors/logos/hackclub.png",
   },
+  {
+    name: "CDNIS",
+    href: "https://www.cdnis.edu.hk/",
+    image: "/images/sponsors/logos/CDNIS.jpg",
+  },
+  {
+    name: "Animoca Brands",
+    href: "https://www.animocabrands.com/",
+    image: "/images/sponsors/logos/Animoca Brands Logo - Standard.png",
+  },
 ];
 
 export const sponsorsHeading = "Our sponsors";
