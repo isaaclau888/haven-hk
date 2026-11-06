@@ -68,7 +68,7 @@ const sponsorSchema = z.object({
   name: z.string(),
   image: srcSchema,
   href: hrefSchema,
-  tier: z.enum(["Gold", "Silver", "Bronze"]).optional(),
+  tier: z.enum(["Venue Supporter", "Gold", "Silver", "Bronze"]).optional(),
 });
 export type Sponsor = z.infer<typeof sponsorSchema>;
 

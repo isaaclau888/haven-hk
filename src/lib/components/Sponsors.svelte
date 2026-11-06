@@ -12,10 +12,11 @@
   let { heading, items, images = defaultSiteData.images }: Props = $props();
 
   const ROW_SIZE = 3;
-  const tiers = ["Gold", "Silver", "Bronze"] as const;
+  const tiers = ["Gold", "Silver", "Bronze", "Venue Supporter"] as const;
 
   const groupedSponsors = $derived.by(() => {
     const groups: Record<(typeof tiers)[number], Sponsor[]> = {
+      "Venue Supporter": [],
       Gold: [],
       Silver: [],
       Bronze: [],
@@ -24,7 +25,8 @@
     const other: Sponsor[] = [];
 
     for (const item of items) {
-      if (item.tier === "Gold") groups.Gold.push(item);
+      if (item.tier === "Venue Supporter") groups["Venue Supporter"].push(item);
+      else if (item.tier === "Gold") groups.Gold.push(item);
       else if (item.tier === "Silver") groups.Silver.push(item);
       else if (item.tier === "Bronze") groups.Bronze.push(item);
       else other.push(item);
@@ -205,31 +207,6 @@
           </h2>
 
           {#if hasTieredItems}
-            {#each tiers as tier}
-              {#if groupedSponsors[tier].length > 0}
-                <div class="mt-[clamp(1.25rem,2vw,2rem)] border-t-2 border-haven-orange-deep/20 pt-[clamp(1.25rem,2vw,2rem)]">
-                  <h3 class={`mx-auto mb-[clamp(0.8rem,1.2vw,1.2rem)] w-fit rounded-full px-[clamp(1rem,2vw,1.75rem)] py-2 text-center font-display text-[clamp(1.35rem,2.2vw,2.3rem)] leading-none tracking-[-0.04em] text-white shadow-sm ${tier === "Gold" ? "bg-haven-gold" : tier === "Silver" ? "bg-haven-brown-dark" : "bg-haven-orange-deep"}`}>
-                    {tier} Tier
-                  </h3>
-
-                  <div class="grid gap-[clamp(0.8rem,2vw,1.6rem)] sm:grid-cols-2 md:grid-cols-3">
-                    {#each groupedSponsors[tier] as item}
-                      <div class="flex min-h-[8rem] flex-col items-center justify-end rounded-xl border-2 border-white/60 bg-white/75 p-[clamp(0.7rem,1.2vw,1rem)] shadow-[0_0.25rem_0_hsla(20,50%,45%,0.18)] transition-transform hover:-translate-y-1 hover:bg-white">
-                        <a href={item.href} target="_blank" rel="noopener" class="group flex flex-col items-center text-center">
-                          <span class="flex h-[clamp(3.75rem,6vw,5rem)] w-[clamp(3.75rem,6vw,5rem)] items-center justify-center rounded-full bg-white p-2 shadow-sm">
-                            <img src={item.image} alt={item.name} loading="lazy" decoding="async" class="h-full w-full object-contain" />
-                          </span>
-                          <span class="mt-2 block font-display text-[clamp(1.1rem,1.7vw,1.65rem)] leading-none tracking-[-0.04em] text-haven-orange-deep">
-                            {item.name}
-                          </span>
-                        </a>
-                      </div>
-                    {/each}
-                  </div>
-                </div>
-              {/if}
-            {/each}
-
             {#if groupedSponsors.Partners.length > 0}
               <div class="mt-[clamp(1.25rem,2vw,2rem)] border-t-2 border-haven-orange-deep/20 pt-[clamp(1.25rem,2vw,2rem)]">
                 <h3 class="mx-auto mb-[clamp(0.8rem,1.2vw,1.2rem)] w-fit rounded-full bg-haven-green-deep px-[clamp(1rem,2vw,1.75rem)] py-2 text-center font-display text-[clamp(1.35rem,2.2vw,2.3rem)] leading-none tracking-[-0.04em] text-white shadow-sm">
@@ -252,6 +229,31 @@
                 </div>
               </div>
             {/if}
+
+            {#each tiers as tier}
+              {#if groupedSponsors[tier].length > 0}
+                <div class="mt-[clamp(1.25rem,2vw,2rem)] border-t-2 border-haven-orange-deep/20 pt-[clamp(1.25rem,2vw,2rem)]">
+                  <h3 class={`mx-auto mb-[clamp(0.8rem,1.2vw,1.2rem)] w-fit rounded-full px-[clamp(1rem,2vw,1.75rem)] py-2 text-center font-display text-[clamp(1.35rem,2.2vw,2.3rem)] leading-none tracking-[-0.04em] text-white shadow-sm ${tier === "Gold" ? "bg-haven-gold" : tier === "Silver" ? "bg-haven-brown-dark"                                     : tier === "Venue Supporter" ? "bg-haven-green-deep" : "bg-haven-orange-deep"}`}>
+                  {tier === "Venue Supporter" ? tier : `${tier} Tier`}
+                  </h3>
+
+                  <div class="grid gap-[clamp(0.8rem,2vw,1.6rem)] sm:grid-cols-2 md:grid-cols-3">
+                    {#each groupedSponsors[tier] as item}
+                      <div class="flex min-h-[8rem] flex-col items-center justify-end rounded-xl border-2 border-white/60 bg-white/75 p-[clamp(0.7rem,1.2vw,1rem)] shadow-[0_0.25rem_0_hsla(20,50%,45%,0.18)] transition-transform hover:-translate-y-1 hover:bg-white">
+                        <a href={item.href} target="_blank" rel="noopener" class="group flex flex-col items-center text-center">
+                          <span class="flex h-[clamp(3.75rem,6vw,5rem)] w-[clamp(3.75rem,6vw,5rem)] items-center justify-center rounded-full bg-white p-2 shadow-sm">
+                            <img src={item.image} alt={item.name} loading="lazy" decoding="async" class="h-full w-full object-contain" />
+                          </span>
+                          <span class="mt-2 block font-display text-[clamp(1.1rem,1.7vw,1.65rem)] leading-none tracking-[-0.04em] text-haven-orange-deep">
+                            {item.name}
+                          </span>
+                        </a>
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            {/each}
           {:else}
             {#each rows as row, rowIndex}
               <div

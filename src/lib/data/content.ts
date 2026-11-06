@@ -302,6 +302,12 @@ export const supporters: Sponsor[] = [
     tier: "Silver",
   },
   {
+    name: "931SMD",
+    href: "https://www.931smd.com/",
+    image: "/images/sponsors/logos/931SMD.png",
+    tier: "Silver",
+  },
+  {
     name: "Hack Club",
     href: "https://hackclub.com/",
     image: "/images/sponsors/logos/hackclub.png",
@@ -310,6 +316,7 @@ export const supporters: Sponsor[] = [
     name: "CDNIS",
     href: "https://www.cdnis.edu.hk/",
     image: "/images/sponsors/logos/CDNIS.jpg",
+    tier: "Venue Supporter",
   },
   {
     name: "Animoca Brands",
@@ -320,7 +327,7 @@ export const supporters: Sponsor[] = [
 
 export const sponsorsHeading = "Our sponsors";
 
-const HAVEN_EMAIL = "mailto:haven@hackclub.com";
+const HAVEN_EMAIL = "mailto:hong-kong@haven.hackclub.com";
 
 export const faqHeading = "FAQ";
 
