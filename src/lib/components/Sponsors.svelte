@@ -12,11 +12,11 @@
   let { heading, items, images = defaultSiteData.images }: Props = $props();
 
   const ROW_SIZE = 3;
-  const tiers = ["Gold", "Silver", "Bronze", "Venue Supporter"] as const;
+  const tiers = ["Gold", "Silver", "Bronze", "Venue Partner"] as const;
 
   const groupedSponsors = $derived.by(() => {
     const groups: Record<(typeof tiers)[number], Sponsor[]> = {
-      "Venue Supporter": [],
+      "Venue Partner": [],
       Gold: [],
       Silver: [],
       Bronze: [],
@@ -25,7 +25,7 @@
     const other: Sponsor[] = [];
 
     for (const item of items) {
-      if (item.tier === "Venue Supporter") groups["Venue Supporter"].push(item);
+      if (item.tier === "Venue Partner") groups["Venue Partner"].push(item);
       else if (item.tier === "Gold") groups.Gold.push(item);
       else if (item.tier === "Silver") groups.Silver.push(item);
       else if (item.tier === "Bronze") groups.Bronze.push(item);
@@ -233,8 +233,8 @@
             {#each tiers as tier}
               {#if groupedSponsors[tier].length > 0}
                 <div class="mt-[clamp(1.25rem,2vw,2rem)] border-t-2 border-haven-orange-deep/20 pt-[clamp(1.25rem,2vw,2rem)]">
-                  <h3 class={`mx-auto mb-[clamp(0.8rem,1.2vw,1.2rem)] w-fit rounded-full px-[clamp(1rem,2vw,1.75rem)] py-2 text-center font-display text-[clamp(1.35rem,2.2vw,2.3rem)] leading-none tracking-[-0.04em] text-white shadow-sm ${tier === "Gold" ? "bg-haven-gold" : tier === "Silver" ? "bg-haven-brown-dark"                                     : tier === "Venue Supporter" ? "bg-haven-green-deep" : "bg-haven-orange-deep"}`}>
-                  {tier === "Venue Supporter" ? tier : `${tier} Tier`}
+                  <h3 class={`mx-auto mb-[clamp(0.8rem,1.2vw,1.2rem)] w-fit rounded-full px-[clamp(1rem,2vw,1.75rem)] py-2 text-center font-display text-[clamp(1.35rem,2.2vw,2.3rem)] leading-none tracking-[-0.04em] text-white shadow-sm ${tier === "Gold" ? "bg-haven-gold" : tier === "Silver" ? "bg-haven-brown-dark"                                                       : tier === "Venue Partner" ? "bg-haven-green-deep" : "bg-haven-orange-deep"}`}>
+                  {tier === "Venue Partner" ? tier : `${tier} Tier`}
                   </h3>
 
                   <div class="grid gap-[clamp(0.8rem,2vw,1.6rem)] sm:grid-cols-2 md:grid-cols-3">

@@ -316,7 +316,7 @@ export const supporters: Sponsor[] = [
     name: "CDNIS",
     href: "https://www.cdnis.edu.hk/",
     image: "/images/sponsors/logos/CDNIS.jpg",
-    tier: "Venue Supporter",
+    tier: "Venue Partner",
   },
   {
     name: "Animoca Brands",
