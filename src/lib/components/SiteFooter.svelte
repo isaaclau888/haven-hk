@@ -31,18 +31,13 @@
     class="relative shell z-20 grid grid-cols-1 gap-[clamp(2rem,5vw,4rem)] md:grid-cols-[minmax(0,22rem)_1fr]"
   >
     <div>
-      <div class="flex w-fit flex-col items-center">
-        <img
-          src={images.logo}
-          alt="Hack Club Haven Hong Kong"
-          width="778"
-          height="445"
-          class="w-[clamp(5rem,22vw,12rem)]"
-        />
-        <span class="-mt-4 translate-x-[clamp(1.25rem,4vw,3.5rem)] self-end whitespace-nowrap font-display text-[clamp(0.8rem,2.2vw,1.45rem)] leading-none text-white">
-          Hong Kong
-        </span>
-      </div>
+      <img
+        src={images.logo}
+        alt="Hack Club Haven"
+        width="778"
+        height="445"
+        class="w-[clamp(5rem,22vw,12rem)]"
+      />
 
       <nav aria-label="Hack Club" class="mt-[clamp(1.5rem,3vw,2.5rem)]">
         <ul class="flex flex-wrap gap-x-6 gap-y-1 md:flex-col">
