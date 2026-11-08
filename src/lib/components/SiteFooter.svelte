@@ -39,7 +39,7 @@
           height="445"
           class="w-[clamp(5rem,22vw,12rem)]"
         />
-        <span class="-mt-2 translate-x-[clamp(2rem,6vw,5rem)] self-end whitespace-nowrap font-display text-[clamp(1.25rem,2.5vw,2.25rem)] leading-none text-white">
+        <span class="-mt-4 translate-x-[clamp(1.25rem,4vw,3.5rem)] self-end whitespace-nowrap font-display text-[clamp(0.8rem,2.2vw,1.45rem)] leading-none text-white">
           Hong Kong
         </span>
       </div>
