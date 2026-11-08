@@ -187,7 +187,40 @@ export const scheduleTbd = {
   body: "We’re still working out the schedule. Sign up and we'll let you know as soon as we figure it out!",
 } as const;
 
-export const schedule: ScheduleDay[] = [];
+export const schedule: ScheduleDay[] = [
+  {
+    day: "Nov 14th",
+    items: [
+      { time: "9:30 am", title: "Doors Open" },
+      { time: "10:00 am", title: "Opening Ceremony" },
+      { time: "10:30 am", title: "Animoca Brands Demo" },
+      { time: "11:30 am", title: "Godot Workshop" },
+      { time: "12:30 pm", title: "Lunch" },
+      { time: "1:30 pm", title: "Idea Showcase" },
+      { time: "1:35 pm", title: "Start Making Projects" },
+      { time: "6:00 pm", title: "Day 1 Ends" },
+    ],
+  },
+  {
+    day: "Nov 15th",
+    items: [
+      { time: "9:30 am", title: "Doors Open" },
+      { time: "10:30 am", title: "Project Showcase" },
+      { time: "11:30 am", title: "Animoca Brands: Minds" },
+      { time: "1:00 pm", title: "Shipping Deadline" },
+      { time: "1:30 pm", title: "Lunch" },
+      { time: "2:30 pm", title: "Science Fair" },
+      { time: "3:30 pm", title: "Voting" },
+      { time: "4:00 pm", title: "Compile Results" },
+      {
+        time: "4:15 pm",
+        title: "Announce award-winners + presentation",
+      },
+      { time: "5:00 pm", title: "Closing Ceremony" },
+      { time: "6:00 pm", title: "Event ends" },
+    ],
+  },
+];
 
 export const stepsHeading =
   "Here is how you can join a game jam this November!";
