@@ -46,6 +46,21 @@ async function seedIfEmpty(){
   const shopTags = (await getJSON("shop:tags", true)) || ["food","merch","perks"];
   SHOP_TAGS = shopTags;
   await setJSON("shop:tags", SHOP_TAGS, true);
+  let meals = await getJSON("meals:list", true);
+  if(!meals){
+    meals = ["Nov 14", "Nov 15"].flatMap(day => [
+      {id:genId("ml",5), day, mealType:"Food", itemName:"Pepperoni pizza", category:"Pizza", notes:'5 pizzas · 24"'},
+      {id:genId("ml",5), day, mealType:"Food", itemName:"Hawaiian pizza", category:"Pizza", notes:'4 pizzas · 24"'},
+      {id:genId("ml",5), day, mealType:"Food", itemName:"Cheese pizza", category:"Pizza", notes:'3 pizzas · 24"'},
+    ]);
+    await setJSON("meals:list", meals, true);
+  }else if(meals.some(item => item.day === "Day 1" || item.day === "Day 2")){
+    meals = meals.map(item => ({
+      ...item,
+      day: item.day === "Day 1" ? "Nov 14" : item.day === "Day 2" ? "Nov 15" : item.day
+    }));
+    await setJSON("meals:list", meals, true);
+  }
   let quests = await getJSON("quests:list", true);
   if(!quests){
     quests = [
@@ -1725,6 +1740,7 @@ function renderMealsPage(){
     <button class="back-link" id="mealsBack">‹ Home</button>
     <div class="page-title">🍽️ Food & Dining</div>
     <p class="page-sub">What's being served, day by day.</p>
+    <p class="page-sub"><strong>Remarks:</strong> If you are allergic to these kinds of food, please contact the co-organizers.</p>
     <div id="mealsDayTabs"></div>
     <div id="mealsBody"><div class="empty-note">Loading…</div></div>
   `;
@@ -3551,7 +3567,7 @@ async function renderAdminUsers(){
     }).join("");
     usersBody.innerHTML = `${participants.length ? `<div class="section-head"><h3>Approved roster (${participants.length})</h3></div><div class="card" style="margin-bottom:16px;">${participantRows}</div>` : ""}` +
       `<div class="field"><input type="text" id="userSearch" placeholder="Search registered wallets…" value="${prevQuery}"></div>` +
-      (users.length ?
+      (users.length ? 
       users.map(u=>`
         <div class="admin-row">
           <div class="quest-badge" style="background:var(--surface-2);">${u.avatar}</div>
