@@ -1,6 +1,8 @@
 // State
 let ME = null;          // {id, name, avatar, balance, isAdmin, completed:[], joinedAt}
 let SHOP = [];
+let SHOP_TAGS = [];
+let QUEST_FILTER = "all";
 let QUESTS = [];
 let TX = [];
 let ACTIVITY = [];
@@ -10,6 +12,17 @@ let ADMIN_TAB = "overview";
 let scanStream = null, scanRAF = null, scanBusy = false;
 let countdownTick = null;
 let adminUnsubs = []; // active Firestore listeners for the current admin tab
+let SHOP_CART = [];
+let SHOP_FILTER = "all";
+let ordersUnsub = null;
+const TEMPORARY_LEGACY_WALLET_LOGIN = false;
+
+function accountLabel(user){
+  if(!user) return "";
+  const username = String(user.username || user.id || "").trim();
+  const realName = String(user.realName || user.name || "").trim();
+  return realName && realName !== username ? `${username} (${realName})` : username;
+}
 
 function clearAdminListeners(){
   adminUnsubs.forEach(u=>{ try{ u(); }catch(e){} });
@@ -21,24 +34,27 @@ async function seedIfEmpty(){
   let shop = await getJSON("shop:items", true);
   if(!shop){
     shop = [
-      {id:"s1", name:"Sticker Pack", desc:"Holographic Haven pack", emoji:"✨", price:30, stock:60},
-      {id:"s2", name:"Boba Tea", desc:"Redeem at the snack table", emoji:"🧋", price:60, stock:40},
-      {id:"s3", name:"Snack Pack", desc:"Chips + candy bundle", emoji:"🍫", price:40, stock:50},
-      {id:"s4", name:"Haven Tee", desc:"Limited event t-shirt", emoji:"👕", price:250, stock:20},
-      {id:"s5", name:"Skip-the-Line Pass", desc:"Jump the demo queue", emoji:"⚡", price:80, stock:15},
-      {id:"s6", name:"Mystery Box", desc:"Random merch grab bag", emoji:"🎁", price:150, stock:12},
+      {id:"s1", name:"Sticker Pack", desc:"Holographic Haven pack", emoji:"✨", price:30, stock:60, tags:["merch"]},
+      {id:"s2", name:"Boba Tea", desc:"Redeem at the snack table", emoji:"🧋", price:60, stock:40, tags:["food"]},
+      {id:"s3", name:"Snack Pack", desc:"Chips + candy bundle", emoji:"🍫", price:40, stock:50, tags:["food"]},
+      {id:"s4", name:"Haven Tee", desc:"Limited event t-shirt", emoji:"👕", price:250, stock:20, tags:["merch"]},
+      {id:"s5", name:"Skip-the-Line Pass", desc:"Jump the demo queue", emoji:"⚡", price:80, stock:15, tags:["perks"]},
+      {id:"s6", name:"Mystery Box", desc:"Random merch grab bag", emoji:"🎁", price:150, stock:12, tags:["merch"]},
     ];
     await setJSON("shop:items", shop, true);
   }
+  const shopTags = (await getJSON("shop:tags", true)) || ["food","merch","perks"];
+  SHOP_TAGS = shopTags;
+  await setJSON("shop:tags", SHOP_TAGS, true);
   let quests = await getJSON("quests:list", true);
   if(!quests){
     quests = [
-      {id:"q1", code:"CHECKIN", title:"Check in at registration", desc:"Scan the code at the front desk to check in.", reward:50, active:true},
-      {id:"q2", code:"IDEA01", title:"Submit your game idea", desc:"Pitch your idea to a mentor and scan their code.", reward:100, active:true},
-      {id:"q3", code:"WORKSHOP1", title:"Attend a workshop", desc:"Scan the code shown at any workshop.", reward:25, active:true},
-      {id:"q4", code:"PLAYTEST", title:"Playtest a teammate's game", desc:"Get the scan from whoever you playtested.", reward:30, active:true},
-      {id:"q5", code:"SOCIAL", title:"Post about Haven HK", desc:"Show an organizer your post to get scanned.", reward:40, active:true},
-      {id:"q6", code:"SHIPIT", title:"Ship your game", desc:"Submit your final build before the deadline.", reward:200, active:true},
+      {id:"q1", code:"CHECKIN", title:"Check in at registration", desc:"Scan the code at the front desk to check in.", reward:50, active:true, type:"main"},
+      {id:"q2", code:"IDEA01", title:"Submit your game idea", desc:"Pitch your idea to a mentor and scan their code.", reward:100, active:true, type:"main"},
+      {id:"q3", code:"WORKSHOP1", title:"Attend a workshop", desc:"Scan the code shown at any workshop.", reward:25, active:true, type:"side"},
+      {id:"q4", code:"PLAYTEST", title:"Playtest a teammate's game", desc:"Get the scan from whoever you playtested.", reward:30, active:true, type:"side"},
+      {id:"q5", code:"SOCIAL", title:"Post about Haven HK", desc:"Show an organizer your post to get scanned.", reward:40, active:true, type:"mystery"},
+      {id:"q6", code:"SHIPIT", title:"Ship your game", desc:"Submit your final build before the deadline.", reward:200, active:true, type:"main"},
     ];
     await setJSON("quests:list", quests, true);
   }
@@ -286,6 +302,7 @@ function renderStyledQR(container, text, opts){
 }
 
 async function loadUser(userId){
+  stopWalletSync();
   const [user, tx] = await Promise.all([
     getJSON("users:"+userId, true),
     getJSON("tx:"+userId, true),
@@ -294,9 +311,134 @@ async function loadUser(userId){
   if(ME){
     TX = tx || [];
     await setJSON("me:userId", userId, false); // local, instant
+    startWalletSync();
+    startInboxSync();
   }
   return ME;
 }
+
+let walletUnsub = null, walletTxUnsub = null;
+let walletSyncReady = false;
+
+function stopWalletSync(){
+  if(walletUnsub){ try{ walletUnsub(); }catch(e){} walletUnsub = null; }
+  if(walletTxUnsub){ try{ walletTxUnsub(); }catch(e){} walletTxUnsub = null; }
+  walletSyncReady = false;
+}
+
+function refreshWalletUI(){
+  if(!ME) return;
+  refreshHeader();
+  renderNav();
+  if(["home","shop","quests","profile","activity","leaderboard","groups"].includes(PAGE)){
+    renderPage(PAGE);
+  }
+}
+
+function startWalletSync(){
+  stopWalletSync();
+  if(!ME) return;
+  const userId = ME.id;
+  walletUnsub = watchJSON("users:"+userId, user=>{
+    if(!user || !ME || ME.id!==userId) return;
+    const previousBalance = Number(ME.balance || 0);
+    ME = user;
+    const balanceChanged = walletSyncReady && previousBalance !== Number(ME.balance || 0);
+    walletSyncReady = true;
+    refreshWalletUI();
+    if(balanceChanged){
+      const direction = Number(ME.balance || 0) >= previousBalance ? "received" : "changed";
+      toast("Wallet updated — "+direction+" Sparks", "info");
+    }
+  });
+  walletTxUnsub = watchJSON("tx:"+userId, tx=>{
+    if(!ME || ME.id!==userId) return;
+    TX = Array.isArray(tx) ? tx : [];
+    if(["home","activity"].includes(PAGE)) renderPage(PAGE);
+  });
+}
+
+// Organizer-driven quest changes.
+// An organizer never edits a participant's wallet record directly: that person's
+// phone holds a live copy and would overwrite the edit the next time it saves.
+// Instead the organizer leaves an instruction in inbox:<userId>; the participant's
+// own app applies it through the normal save path, then clears it. Each instruction
+// has an id remembered in ME.appliedOps, so a retry can never pay or deduct twice.
+let inboxUnsub = null, inboxLatest = [], applyingInbox = false, inboxRerun = false;
+
+function startInboxSync(){
+  stopInboxSync();
+  if(!ME) return;
+  inboxUnsub = watchJSON("inbox:"+ME.id, ops=>{
+    inboxLatest = Array.isArray(ops) ? ops : [];
+    drainInbox();
+  });
+}
+function stopInboxSync(){
+  if(inboxUnsub){ try{ inboxUnsub(); }catch(e){} inboxUnsub = null; }
+  inboxLatest = [];
+}
+
+async function drainInbox(){
+  if(applyingInbox){ inboxRerun = true; return; }   // a newer snapshot arrived mid-apply — go round again after
+  applyingInbox = true;
+  try{
+    do{
+      inboxRerun = false;
+      if(!ME || !inboxLatest.length) break;
+      const ops = inboxLatest.slice();
+      ME.completed = ME.completed || [];
+      ME.appliedOps = ME.appliedOps || [];
+      const feed = [];
+      let processed = 0, changed = false;
+
+      for(const op of ops){
+        if(ME.appliedOps.includes(op.id)) continue;      // applied earlier; it only needs clearing
+        processed++;
+        if(op.type === "quest_add" && !ME.completed.includes(op.questId)){
+          const amt = op.adjust ? Math.max(0, op.reward || 0) : 0;
+          ME.completed.push(op.questId);
+          ME.balance += amt;
+          if(amt > 0) TX.unshift({type:"quest", desc:"Completed: "+op.questTitle+" (organizer)", amount:amt, ts:Date.now()});
+          feed.push({type:"quest", user:ME.name, detail:op.questTitle+" (added by organizer)", amount:amt, ts:Date.now()});
+          changed = true;
+        }else if(op.type === "quest_remove" && ME.completed.includes(op.questId)){
+          const take = op.adjust ? Math.min(Math.max(0, op.reward || 0), ME.balance) : 0;   // never below 0
+          ME.completed = ME.completed.filter(id => id !== op.questId);
+          ME.balance -= take;
+          if(take > 0) TX.unshift({type:"quest", desc:"Quest reset: "+op.questTitle+" (organizer)", amount:-take, ts:Date.now()});
+          feed.push({type:"quest", user:ME.name, detail:op.questTitle+" (removed by organizer)", amount:-take, ts:Date.now()});
+          changed = true;
+        }
+        ME.appliedOps.push(op.id);
+      }
+
+      if(processed){
+        ME.appliedOps = ME.appliedOps.slice(-50);
+        await Promise.all([saveMe(), saveTx()]);
+        for(const e of feed) await pushActivity(e);
+      }
+
+      const doneIds = ops.map(o => o.id);
+      try{
+        await updateJSON("inbox:"+ME.id, list => (Array.isArray(list) ? list : []).filter(o => !doneIds.includes(o.id)));
+        inboxLatest = inboxLatest.filter(o => !doneIds.includes(o.id));
+      }catch(err){
+        console.warn("Couldn't clear the inbox yet (safe — it will be skipped next time):", err);
+        break;
+      }
+
+      if(changed){
+        renderNav();
+        if(["home","quests","profile","activity","shop"].includes(PAGE)) renderPage(PAGE);
+        toast("An organizer updated your quest progress", "info");
+      }
+    }while(inboxRerun);
+  }finally{
+    applyingInbox = false;
+  }
+}
+// (end of organizer-driven quest changes)
 
 async function saveMe(){ await setJSON("users:"+ME.id, ME, true); }
 async function saveTx(){ await setJSON("tx:"+ME.id, TX, true); }
@@ -308,13 +450,15 @@ async function pushActivity(entry){
 }
 
 async function refreshShared(){
-  const [shop, quests, activity, timer] = await Promise.all([
+  const [shop, shopTags, quests, activity, timer] = await Promise.all([
     getJSON("shop:items", true),
+    getJSON("shop:tags", true),
     getJSON("quests:list", true),
     getJSON("activity:feed", true),
     getJSON("event:timer", true),
   ]);
   SHOP = shop || [];
+  SHOP_TAGS = shopTags || [];
   QUESTS = quests || [];
   ACTIVITY = activity || [];
   TIMER = timer;
@@ -344,8 +488,9 @@ function renderNav(){
   // so they're not duplicated between the nav bar and the home screen
   const items = [
     {id:"home", label:"Home", icon:ICONS.home},
+    {id:"shop", label:"Shop", icon:ICONS.shop},
     {id:"activity", label:"Activity", icon:ICONS.activity},
-    {id:"games", label:"Play", icon:ICONS.games},
+    {id:"games", label:"Idea Picker", icon:ICONS.games},
     {id:"profile", label:"Profile", icon:ICONS.profile},
   ];
   if(ME && ME.isAdmin) items.push({id:"admin", label:"Admin", icon:ICONS.admin});
@@ -372,7 +517,7 @@ function renderNav(){
   }
   const foot = document.getElementById("sidebarFoot");
   if(foot){
-    foot.innerHTML = ME ? `<div class="av">${ME.avatar}</div><div class="info"><div class="n">${ME.name}</div><div class="b">${ME.balance} ${CURRENCY_SHORT}</div></div>` : "";
+    foot.innerHTML = ME ? `<div class="av">${ME.avatar}</div><div class="info"><div class="n">${accountLabel(ME)}</div><div class="b">${ME.balance} ${CURRENCY_SHORT}</div></div>` : "";
   }
 }
 
@@ -380,6 +525,7 @@ async function goTo(page){
   stopScanner();
   stopCountdownTicker();
   stopReflexLoop();
+  if(ordersUnsub){ ordersUnsub(); ordersUnsub=null; }
   if(page !== "admin") clearAdminListeners();
   PAGE = page;
   document.getElementById("fabBtn").style.display = "none";
@@ -436,7 +582,7 @@ function renderHome(){
   const c = document.getElementById("pageContent");
   const recent = TX.slice(0,5);
   c.innerHTML = `
-    <div class="page-title">Hi, ${ME.name.split(" ")[0]}</div>
+    <div class="page-title">Hi, ${accountLabel(ME).split(" ")[0]}</div>
     <p class="page-sub">Here's your wallet.</p>
     <div id="announcementBanner"></div>
     <div class="wallet-card">
@@ -448,7 +594,7 @@ function renderHome(){
       <div class="wallet-balance"><span id="balNum">0</span></div>
       <div class="wallet-bottom">
         <div class="wallet-id">${ME.id}</div>
-        <div class="wallet-name">${ME.name}</div>
+        <div class="wallet-name">${accountLabel(ME)}</div>
       </div>
     </div>
     ${countdownCardHTML()}
@@ -626,6 +772,7 @@ function animateNumber(el, from, to, dur){
 // Shop
 function renderShop(){
   const c = document.getElementById("pageContent");
+  const tags = [...new Set(SHOP.flatMap(item=>Array.isArray(item.tags) ? item.tags : []))].sort();
   c.innerHTML = `
     <div class="page-title">Shop</div>
     <p class="page-sub">Spend your ${CURRENCY} on merch, snacks and perks.</p>
@@ -633,59 +780,109 @@ function renderShop(){
       <span style="font-size:12px; color:var(--ink-dim); font-weight:600;">Your balance</span>
       <span class="mono" style="font-weight:700; font-size:15px; color:var(--gold);">${ME.balance} ${CURRENCY_SHORT}</span>
     </div>
+    <div style="display:flex; gap:8px; margin-bottom:14px;">
+      <button class="icon-btn" id="reviewCartBtn" title="Shopping bag" style="position:relative; width:46px; height:46px;">
+        ${ICONS.shop}
+        <span id="cartCount" style="position:absolute; top:-6px; right:-6px; min-width:20px; height:20px; padding:0 5px; border-radius:10px; background:var(--accent); color:var(--on-accent); font:700 11px/20px var(--font-num);">${SHOP_CART.reduce((n,x)=>n+x.qty,0)}</span>
+      </button>
+      <button class="btn btn-ghost" id="orderHistoryBtn" style="flex:1;">Order history</button>
+    </div>
+    ${tags.length ? `<div class="shop-filters" id="shopFilters">
+      <button class="shop-filter ${SHOP_FILTER==="all"?'active':''}" data-filter="all">All</button>
+      ${tags.map(tag=>`<button class="shop-filter ${SHOP_FILTER===tag?'active':''}" data-filter="${tag}">${tag}</button>`).join("")}
+    </div>` : ""}
     <div class="shop-grid" id="shopGrid"></div>
   `;
   const grid = document.getElementById("shopGrid");
+  const visibleShop = SHOP.filter(item=>SHOP_FILTER==="all" || (Array.isArray(item.tags) && item.tags.includes(SHOP_FILTER)));
   if(!SHOP.length){ grid.innerHTML = `<div class="empty-note" style="grid-column:1/-1;">Shop is empty right now.</div>`; return; }
-  grid.innerHTML = SHOP.map(item => `
+  if(!visibleShop.length){ grid.innerHTML = `<div class="empty-note" style="grid-column:1/-1;">No items in this category yet.</div>`; }
+  else grid.innerHTML = visibleShop.map(item => `
     <div class="shop-item">
       <div class="shop-emoji">${item.emoji}</div>
       <h4>${item.name}</h4>
+      ${Array.isArray(item.tags) && item.tags.length ? `<div class="shop-tags">${item.tags.map(tag=>`<span>${tag}</span>`).join("")}</div>` : ""}
       <div class="desc">${item.desc||""}</div>
       <div class="row"><span class="price">${item.price} ${CURRENCY_SHORT}</span><span class="stock">${item.stock} left</span></div>
-      <button class="buy-btn" data-buy="${item.id}" ${(item.stock<=0 || ME.balance<item.price)?'disabled':''}>
-        ${item.stock<=0 ? 'Sold out' : (ME.balance<item.price ? 'Not enough' : 'Buy')}
+      <button class="buy-btn" data-buy="${item.id}" ${item.stock<=0?'disabled':''}>
+        ${item.stock<=0 ? 'Sold out' : 'Add to bag'}
       </button>
     </div>
   `).join("");
-  grid.querySelectorAll("[data-buy]").forEach(b=> b.addEventListener("click", ()=>buyItem(b.dataset.buy)));
+  document.querySelectorAll("[data-filter]").forEach(b=> b.addEventListener("click", ()=>{
+    SHOP_FILTER = b.dataset.filter;
+    renderShop();
+  }));
+  grid.querySelectorAll("[data-buy]").forEach(b=> b.addEventListener("click", ()=>{
+    const item = SHOP.find(i=>i.id===b.dataset.buy);
+    const existing = SHOP_CART.find(x=>x.itemId===item.id);
+    if(existing) existing.qty += 1; else SHOP_CART.push({itemId:item.id, qty:1});
+    renderShop(); toast("Added to shopping bag", "");
+  }));
+  document.getElementById("reviewCartBtn").addEventListener("click", showCartModal);
+  document.getElementById("orderHistoryBtn").addEventListener("click", showOrderHistoryModal);
 }
 
-function buyItem(itemId){
-  const item = SHOP.find(i=>i.id===itemId);
-  if(!item) return;
-  if(item.stock<=0){ toast("Sold out", "err"); return; }
-  if(ME.balance < item.price){ toast("Not enough "+CURRENCY, "err"); return; }
+function renderOrderHistory(el, list){
+  const orders = (list || []).filter(r=>r.userId===ME.id).sort((a,b)=>b.ts-a.ts);
+  el.innerHTML = orders.length ? orders.map(r=>`
+    <div class="tx-row">
+      <div class="tx-icon">${r.itemEmoji}</div>
+      <div class="tx-meta">
+        <div class="t">${r.itemName || "Order"} ${r.id ? `<span class="mono" style="font-size:10px; color:var(--ink-faint);">${r.id}</span>` : ""}</div>
+        <div class="d">${new Date(r.ts).toLocaleString()} · ${r.total||r.price||0} ${CURRENCY_SHORT}</div>
+      </div>
+      <div class="tx-amt ${r.status==='declined'?'out':'in'}">${r.status}</div>
+    </div>
+  `).join("") : `<div class="empty-note">No orders yet.</div>`;
+}
 
-  // update the UI immediately — no waiting on the network
-  ME.balance -= item.price;
-  item.stock -= 1;
-  const tx = {type:"purchase", desc:"Bought "+item.name, amount:-item.price, ts:Date.now()};
-  TX.unshift(tx);
-  renderNav();
-  renderShop();
-  toast("Purchased "+item.emoji+" "+item.name+" — show this at pickup", "");
+function showOrderHistoryModal(){
+  if(ordersUnsub){ ordersUnsub(); ordersUnsub=null; }
+  showModal(`
+    <h3>Order history</h3>
+    <p style="color:var(--ink-dim); font-size:12px; margin:-6px 0 12px;">Track pending, accepted, and declined orders.</p>
+    <div id="orderHistoryList"><div class="empty-note">Loading…</div></div>
+    <div class="modal-actions"><button class="btn btn-primary btn-block" id="closeOrderHistory">Done</button></div>
+  `);
+  const listEl = document.getElementById("orderHistoryList");
+  ordersUnsub = watchJSON("redemptions:list", list=>renderOrderHistory(listEl, list));
+  document.getElementById("closeOrderHistory").addEventListener("click", ()=>{
+    if(ordersUnsub){ ordersUnsub(); ordersUnsub=null; }
+    closeModal();
+  });
+}
 
-  // sync to Firebase in the background, all at once instead of one write at a time
-  const redemption = {
-    id: genId("r",5),
-    userId: ME.id, userName: ME.name, userAvatar: ME.avatar,
-    itemId: item.id, itemName: item.name, itemEmoji: item.emoji,
-    price: item.price, status: "pending", ts: Date.now(), fulfilledAt: null
+async function loadMyOrders(){
+  const el = document.getElementById("myOrders");
+  if(!el) return;
+  const draw = list => {
+    renderOrderHistory(el, list);
   };
-  (async ()=>{
-    try{
-      const redemptions = (await getJSON("redemptions:list", true)) || [];
-      redemptions.unshift(redemption);
-      await Promise.all([
-        saveMe(),
-        setJSON("shop:items", SHOP, true),
-        saveTx(),
-        pushActivity({type:"purchase", user:ME.name, detail:item.name, amount:-item.price, ts:Date.now()}),
-        setJSON("redemptions:list", redemptions, true),
-      ]);
-    }catch(err){ console.error("purchase sync failed", err); }
-  })();
+  ordersUnsub = watchJSON("redemptions:list", draw);
+}
+
+function showCartModal(){
+  if(!SHOP_CART.length){ toast("Your shopping bag is empty", "err"); return; }
+  const rows = SHOP_CART.map(x=>{ const i=SHOP.find(v=>v.id===x.itemId); return {x,i}; }).filter(x=>x.i);
+  const total = rows.reduce((n,r)=>n+r.i.price*r.x.qty,0);
+  showModal(`<h3>Shopping Bag</h3><div id="cartRows">${rows.map(r=>`<div class="tx-row"><div class="tx-icon">${r.i.emoji}</div><div class="tx-meta"><div class="t">${r.i.name} × ${r.x.qty}</div><div class="d">${r.i.price*r.x.qty} ${CURRENCY_SHORT}</div></div></div>`).join("")}</div><div class="section-head"><h3>Total</h3><strong>${total} ${CURRENCY_SHORT}</strong></div><div class="modal-actions"><button class="btn btn-ghost" id="cancelCart">Cancel</button><button class="btn btn-primary" id="confirmCart">Confirm Purchase</button></div>`);
+  document.getElementById("cancelCart").addEventListener("click", closeModal);
+  document.getElementById("confirmCart").addEventListener("click", ()=>confirmCartPurchase(rows,total));
+}
+
+async function confirmCartPurchase(rows,total){
+  if(ME.balance<total){ toast("Not enough "+CURRENCY, "err"); return; }
+  if(rows.some(r=>r.x.qty>r.i.stock)){ toast("An item no longer has enough stock", "err"); return; }
+  ME.balance -= total;
+  const now=Date.now();
+  const order={id:genId("o",6), userId:ME.id,userName:ME.name,userAvatar:ME.avatar,items:rows.map(r=>({itemId:r.i.id,itemName:r.i.name,itemEmoji:r.i.emoji,quantity:r.x.qty,price:r.i.price})),total,status:"pending",ts:now};
+  rows.forEach(r=>r.i.stock-=r.x.qty);
+  TX.unshift({type:"purchase",desc:"Order "+order.id,amount:-total,ts:now});
+  const redemptions=(await getJSON("redemptions:list",true))||[];
+  redemptions.unshift({...order,itemName:rows.map(r=>r.i.name).join(", "),itemEmoji:rows[0].i.emoji,price:total});
+  await Promise.all([saveMe(),saveTx(),setJSON("shop:items",SHOP,true),setJSON("redemptions:list",redemptions,true),pushActivity({type:"purchase",user:ME.name,detail:"Order "+order.id,amount:-total,ts:now})]);
+  SHOP_CART=[]; closeModal(); renderShop(); toast("Order submitted", "");
 }
 
 // Scan
@@ -1036,12 +1233,13 @@ async function showSendModal(presetUserId){
   let recipientUser = presetUserId ? await getJSON("users:"+presetUserId, true) : null;
   showModal(`
     <h3>Send ${CURRENCY}</h3>
+    ${!recipientUser ? `<p style="color:var(--ink-dim); font-size:12px; margin:-6px 0 12px;">Choose someone by username or wallet ID, or use Scan to send with their QR code.</p>` : ""}
     ${recipientUser ? `
       <div class="field"><label>To</label>
-        <div class="list-item" style="background:var(--surface-2); border-radius:12px; padding:11px 13px;"><span class="lab">${recipientUser.avatar} ${recipientUser.name}</span></div>
+        <div class="list-item" style="background:var(--surface-2); border-radius:12px; padding:11px 13px;"><span class="lab">${recipientUser.avatar} ${accountLabel(recipientUser)}</span></div>
       </div>
     ` : `
-      <div class="field"><label>To</label><input type="text" id="sendSearch" placeholder="Search by name or wallet ID"></div>
+      <div class="field"><label>Username or wallet ID</label><input type="text" id="sendSearch" placeholder="e.g. isaac or HVN-AB12"></div>
       <div id="sendUserList" style="max-height:160px; overflow-y:auto; margin-bottom:12px;"></div>
     `}
     <div class="field"><label>Amount</label><input type="number" id="sendAmount" placeholder="0"></div>
@@ -1052,17 +1250,20 @@ async function showSendModal(presetUserId){
     </div>
   `);
   let selected = recipientUser ? recipientUser.id : null;
-  let selectedName = recipientUser ? recipientUser.name : null;
+  let selectedName = recipientUser ? accountLabel(recipientUser) : null;
   const confirmBtn = document.getElementById("confirmSend");
   if(!recipientUser){
     const listEl = document.getElementById("sendUserList");
     const searchEl = document.getElementById("sendSearch");
     async function renderList(q){
       const users = (await allUsers()).filter(u=>u.id!==ME.id);
-      const filtered = q ? users.filter(u=> (u.name+u.id).toLowerCase().includes(q.toLowerCase())) : users;
+      const needle = q.trim().toLowerCase();
+      const filtered = needle ? users.filter(u=>[
+        u.username, u.id, u.name, u.realName
+      ].filter(Boolean).some(value=>String(value).toLowerCase().includes(needle))) : users;
       listEl.innerHTML = filtered.slice(0,20).map(u=>`
-        <div class="list-item send-pick" data-id="${u.id}" data-name="${u.name}" style="cursor:pointer;">
-          <span class="lab">${u.avatar} ${u.name}</span>
+        <div class="list-item send-pick" data-id="${u.id}" data-name="${accountLabel(u)}" style="cursor:pointer;">
+          <span class="lab">${u.avatar} ${accountLabel(u)}</span>
           <span class="mono" style="color:var(--ink-faint); font-size:11px;">${u.id}</span>
         </div>
       `).join("") || `<div class="empty-note">No matches</div>`;
@@ -1166,8 +1367,15 @@ async function loadGroupsPageBody(){
         </div>
       </div>
     </div>
-    <div class="field"><label>Send to everyone in the group</label><input type="number" id="groupSendAmt" placeholder="Amount each"></div>
-    <button class="btn btn-primary btn-block" id="groupSendBtn">Send to all members</button>
+    <div class="section-head" style="margin-top:22px;"><h3>Group SPK</h3></div>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="field"><label>SPK amount for each selected member</label><input type="number" id="groupXpAmount" min="1" step="1" placeholder="e.g. 10"></div>
+      <div class="field"><label>Give SPK to</label><select id="groupXpTarget">
+        <option value="all">Everyone in ${myGroup.name}</option>
+        ${members.filter(m=>m.id!==ME.id).map(m=>`<option value="${m.id}">${accountLabel(m)}</option>`).join("")}
+      </select></div>
+      <button class="btn btn-ghost btn-block" id="groupXpBtn">Give SPK</button>
+    </div>
     <div class="section-head" style="margin-top:22px;"><h3>Members</h3></div>
     <div class="card" style="margin-bottom:16px;">
       ${members.map(m=>`
@@ -1200,19 +1408,24 @@ async function loadGroupsPageBody(){
 
   el.querySelectorAll("[data-sendto]").forEach(b=> b.addEventListener("click", ()=> showSendModal(b.dataset.sendto)));
 
-  document.getElementById("groupSendBtn").addEventListener("click", async ()=>{
-    const amt = parseInt(document.getElementById("groupSendAmt").value) || 0;
-    const others = members.filter(m=>m.id!==ME.id);
-    if(amt<=0){ toast("Enter an amount", "err"); return; }
-    if(!others.length){ toast("No other members to send to", "err"); return; }
-    let sentCount = 0;
-    for(const m of others){
-      const ok = await sendMoney(m.id, amt, "Group: "+myGroup.name, m.name);
-      if(ok) sentCount++; else break;
-    }
-    if(sentCount===others.length) toast("Sent "+amt+" "+CURRENCY_SHORT+" to "+sentCount+" members", "");
-    else toast("Sent to "+sentCount+"/"+others.length+" (balance ran out)", "err");
-    renderNav();
+  document.getElementById("groupXpBtn").addEventListener("click", async ()=>{
+    const amount = Math.floor(Number(document.getElementById("groupXpAmount").value));
+    const target = document.getElementById("groupXpTarget").value;
+    if(!Number.isFinite(amount) || amount<=0){ toast("Enter a positive SPK amount", "err"); return; }
+    const recipientIds = target==="all" ? myGroup.memberIds.filter(id=>id!==ME.id) : [target];
+    if(!recipientIds.length || recipientIds.includes(ME.id)){ toast("Choose another group member", "err"); return; }
+    const updates = await Promise.all(recipientIds.map(async id=>{
+      const user = await getJSON("users:"+id, true);
+      if(!user) return false;
+      user.balance = Number(user.balance || 0) + amount;
+      await setJSON("users:"+id, user, true);
+      const tx = (await getJSON("tx:"+id, true)) || [];
+      tx.unshift({type:"group-reward", desc:"Group SPK reward from "+myGroup.name, amount, ts:Date.now()});
+      await setJSON("tx:"+id, tx, true);
+      return true;
+    }));
+    const count = updates.filter(Boolean).length;
+    toast("Gave "+amount+" "+CURRENCY_SHORT+" to "+count+" member"+(count===1?"":"s"), "");
     loadGroupsPageBody();
   });
 
@@ -1307,9 +1520,65 @@ function ensureGamesState(){
 }
 
 function renderGames(){
-  GAME_VIEW = null;
   const c = document.getElementById("pageContent");
-  renderGamesHub(c);
+  c.innerHTML = `
+    <div class="hero-mark" style="margin-bottom:10px;">💡</div>
+    <div class="page-title">Idea Picker</div>
+    <p class="page-sub">Turn a theme into a game concept in seconds.</p>
+    <div class="card">
+      <div class="field"><label>Theme <span style="color:var(--ink-faint);">(optional)</span></label><input id="ideaTheme" maxlength="80" placeholder="e.g. Nov 14 release"></div>
+      <button class="btn btn-primary btn-block" id="generateIdeaBtn">Generate Game Concept</button>
+    </div>
+    <div id="ideaResult" style="margin-top:14px;"></div>
+    <div class="section-head"><h3>Saved concepts</h3></div>
+    <div class="card" id="savedIdeas"></div>
+  `;
+  const drawSaved = ()=>{
+    const list = JSON.parse(localStorage.getItem(LOCAL_PREFIX+"ideas") || "[]");
+    document.getElementById("savedIdeas").innerHTML = list.length ? list.map((x,i)=>`
+      <div class="tx-row"><div class="tx-meta"><div class="t">${x.title}</div><div class="d">${x.theme}</div></div>
+      <button class="icon-btn" data-delete-idea="${i}" title="Delete">${ICONS.trash}</button></div>`).join("") :
+      `<div class="empty-note">No saved concepts yet.</div>`;
+    document.querySelectorAll("[data-delete-idea]").forEach(b=>b.addEventListener("click",()=>{
+      const next = JSON.parse(localStorage.getItem(LOCAL_PREFIX+"ideas") || "[]");
+      next.splice(Number(b.dataset.deleteIdea),1);
+      localStorage.setItem(LOCAL_PREFIX+"ideas", JSON.stringify(next)); drawSaved();
+    }));
+  };
+  const generate = ()=>{
+    const themes = [
+      "a city under the sea","a forgotten arcade","a world without gravity","the last train home","a festival after dark",
+      "a haunted space station","a village inside a giant tree","a library that rearranges itself","a kingdom run by robots",
+      "a moon with changing seasons","a delivery service for lost dreams","an abandoned theme park","a shrinking planet",
+      "a museum after midnight","a submarine racing through clouds","a detective agency for magical creatures",
+      "a bakery at the end of time","a train that visits parallel worlds","a garden growing on a spaceship",
+      "a school for retired villains"
+    ];
+    const genres = [
+      "Platformer","Roguelike","Puzzle","Stealth","Rhythm","Cozy Simulation","Tower Defense","Deckbuilder",
+      "Metroidvania","Social Deduction","Survival","Turn-based Strategy","Adventure","Action RPG","Party Game",
+      "Physics Sandbox","Interactive Mystery","Management Sim","Bullet Heaven","Narrative Exploration"
+    ];
+    const mechanics = [
+      "Gravity Flip","Time Manipulation","Shared Inventory","Sound-based Movement","Light and Shadow",
+      "Body Swapping","Rewindable Actions","Weather Control","Growing and Shrinking","Drawing Your Own Path",
+      "Trading Memories","Building with Echoes","Moving Through Reflections","Risk and Reward Choices",
+      "Combining Creatures","Changing the Game Rules","Stealing Enemy Abilities","Playing as a Team of One",
+      "Invisible Platforms","Rewriting Conversations"
+    ];
+    const theme = document.getElementById("ideaTheme").value.trim() || themes[Math.floor(Math.random()*themes.length)];
+    const genre = genres[Math.floor(Math.random()*genres.length)];
+    const mechanic = mechanics[Math.floor(Math.random()*mechanics.length)];
+    const concept = {theme, title: `${genre}: ${theme}`, text:`A ${genre.toLowerCase()} about ${theme}, built around ${mechanic}.`};
+    document.getElementById("ideaResult").innerHTML = `<div class="card"><div class="section-head" style="margin-top:0;"><h3>${concept.title}</h3><button class="btn btn-ghost" id="saveIdeaBtn">Save</button></div><p style="color:var(--ink-dim); line-height:1.5; margin:0;">${concept.text}</p></div>`;
+    document.getElementById("saveIdeaBtn").addEventListener("click",()=>{
+      const list = JSON.parse(localStorage.getItem(LOCAL_PREFIX+"ideas") || "[]");
+      list.unshift(concept); localStorage.setItem(LOCAL_PREFIX+"ideas", JSON.stringify(list.slice(0,30)));
+      drawSaved(); toast("Concept saved", "");
+    });
+  };
+  document.getElementById("generateIdeaBtn").addEventListener("click", generate);
+  drawSaved();
 }
 
 function renderGamesHub(c){
@@ -1846,25 +2115,35 @@ function renderQuests(){
   c.innerHTML = `
     <div class="page-title">Quests</div>
     <p class="page-sub">${done}/${QUESTS.length} complete · scan a station's code to earn ${CURRENCY}.</p>
+    <div class="quest-filters">
+      ${["all","main","side","mystery"].map(type=>`<button class="quest-filter ${QUEST_FILTER===type?'active':''}" data-quest-filter="${type}">${type==="all"?"All":type[0].toUpperCase()+type.slice(1)}</button>`).join("")}
+    </div>
     <div id="questList"></div>
   `;
   const list = document.getElementById("questList");
-  const active = QUESTS.filter(q=>q.active);
-  if(!active.length){ list.innerHTML = `<div class="empty-note">No quests posted yet.</div>`; return; }
-  list.innerHTML = active.map(q=>{
+  const active = QUESTS.filter(q=>q.active && (QUEST_FILTER==="all" || (q.type || "main")===QUEST_FILTER));
+  if(!active.length){
+    list.innerHTML = `<div class="empty-note">${QUEST_FILTER==="all" ? "No quests posted yet." : "No "+QUEST_FILTER+" quests yet."}</div>`;
+  }else{
+    list.innerHTML = active.map(q=>{
     const isDone = ME.completed && ME.completed.includes(q.id);
     return `<div class="quest-card ${isDone?'done':''}">
-      <div class="quest-badge">${isDone?'✅':'🎯'}</div>
+      <div class="quest-badge">${isDone?'✅':q.type==="mystery"?'❓':'🎯'}</div>
       <div class="quest-info">
-        <h4>${q.title}</h4>
+        <h4>${q.title} <span class="quest-type">${(q.type || "main")}</span></h4>
         <p>${q.desc}</p>
         <div class="quest-foot">
-          <span class="quest-reward">+${q.reward} ${CURRENCY_SHORT}</span>
+          <span class="quest-reward">${q.type==="mystery" ? "??? "+CURRENCY_SHORT : "+"+q.reward+" "+CURRENCY_SHORT}</span>
           <span class="status-chip ${isDone?'done':'open'}">${isDone?'Completed':'Open'}</span>
         </div>
       </div>
     </div>`;
-  }).join("");
+    }).join("");
+  }
+  c.querySelectorAll("[data-quest-filter]").forEach(b=>b.addEventListener("click", ()=>{
+    QUEST_FILTER = b.dataset.questFilter;
+    renderQuests();
+  }));
 }
 
 // Profile
@@ -1875,7 +2154,7 @@ function renderProfile(){
   c.innerHTML = `
     <div class="profile-head">
       <div class="big-avatar">${ME.avatar}</div>
-      <h2>${ME.name} ${ME.isAdmin?'<span class="admin-badge">'+ICONS.shield+' ORGANIZER</span>':''}</h2>
+      <h2>${accountLabel(ME)} ${ME.isAdmin?'<span class="admin-badge">'+ICONS.shield+' ORGANIZER</span>':''}</h2>
       <div class="idtag">${ME.id}</div>
     </div>
     <div class="stat-row">
@@ -1889,15 +2168,54 @@ function renderProfile(){
       <button class="list-item" id="goGroupsBtn" style="width:100%; background:none; border:none; color:inherit;"><span class="lab"><span class="list-icon">${ICONS.group}</span>Groups</span>${ICONS.chevron}</button>
       <button class="list-item" id="editNameBtn" style="width:100%; background:none; border:none; color:inherit;"><span class="lab"><span class="list-icon">${ICONS.edit}</span>Edit name</span>${ICONS.chevron}</button>
       ${!ME.isAdmin ? `<button class="list-item" id="adminUnlockBtn" style="width:100%; background:none; border:none; color:inherit;"><span class="lab"><span class="list-icon">${ICONS.shield}</span>Organizer access</span>${ICONS.chevron}</button>` : ""}
+      ${ME.isAdmin ? `<button class="list-item" id="switchAccountBtn" style="width:100%; background:none; border:none; color:inherit;"><span class="lab"><span class="list-icon">${ICONS.users}</span>Switch account</span>${ICONS.chevron}</button>` : ""}
       <button class="list-item" id="signOutBtn" style="width:100%; background:none; border:none; color:inherit;"><span class="lab"><span class="list-icon">${ICONS.logout}</span>Sign out</span>${ICONS.chevron}</button>
     </div>
   `;
   document.getElementById("myQrBtn").addEventListener("click", ()=> renderMyQRPage("profile"));
   document.getElementById("goGroupsBtn").addEventListener("click", ()=> goTo("groups"));
   document.getElementById("editNameBtn").addEventListener("click", showEditNameModal);
+  const switchAccountBtn = document.getElementById("switchAccountBtn");
+  if(switchAccountBtn) switchAccountBtn.addEventListener("click", showWalletSwitcher);
   document.getElementById("signOutBtn").addEventListener("click", signOut);
   const unlockBtn = document.getElementById("adminUnlockBtn");
   if(unlockBtn) unlockBtn.addEventListener("click", showAdminUnlockModal);
+}
+
+async function showWalletSwitcher(){
+  if(!ME || !ME.isAdmin) return;
+  const email = String(ME.email || "").trim().toLowerCase();
+  const participant = (await approvedParticipants()).find(item=>String(item.email || "").trim().toLowerCase()===email);
+  const linkedUsers = (await allUsers()).filter(user=>
+    String(user.email || "").trim().toLowerCase()===email && user.isAdmin
+  );
+  const organizerUsers = (await allUsers()).filter(user=>user.isAdmin);
+  const assignedIds = Array.isArray(participant?.walletIds) ? participant.walletIds : [];
+  const walletIds = [...new Set([ME.id, ...assignedIds, ...linkedUsers.map(user=>user.id), ...organizerUsers.map(user=>user.id)])];
+  const uniqueIds = [...new Set(walletIds)].filter(Boolean);
+  const wallets = (await Promise.all(uniqueIds.map(id=>getJSON("users:"+id, true)))).filter(Boolean);
+  if(!wallets.length){ toast("No wallets are assigned to this organizer", "err"); return; }
+  showModal(`
+    <h3>Switch wallet</h3>
+    <p class="page-sub">Choose one of your assigned wallets.</p>
+    <div class="card">
+      ${wallets.map(wallet=>`
+        <button class="list-item wallet-switch-option" data-wallet-id="${wallet.id}" style="width:100%;background:none;border:none;color:inherit;text-align:left;">
+          <span class="lab"><span class="list-icon">${wallet.avatar || "🙂"}</span><span>${accountLabel(wallet)}<small class="sub" style="display:block;">${wallet.id} · ${wallet.balance || 0} ${CURRENCY_SHORT}</small></span></span>
+          ${wallet.id===ME.id ? '<span class="admin-badge">Current</span>' : ICONS.chevron}
+        </button>
+      `).join("")}
+    </div>
+    <button class="btn btn-ghost btn-block" id="closeWalletSwitcher" style="margin-top:10px;">Cancel</button>
+  `);
+  document.getElementById("closeWalletSwitcher").addEventListener("click", closeModal);
+  document.querySelectorAll(".wallet-switch-option").forEach(button=>button.addEventListener("click", async ()=>{
+    const wallet = await loadUser(button.dataset.walletId);
+    if(!wallet){ toast("Wallet not found", "err"); return; }
+    closeModal();
+    refreshHeader();
+    goTo("home");
+  }));
 }
 
 function showModal(html){
@@ -1910,14 +2228,16 @@ function showModal(html){
   document.getElementById("shell").appendChild(backdrop);
 }
 function closeModal(){
+  if(ordersUnsub){ ordersUnsub(); ordersUnsub=null; }
   const m = document.getElementById("modalBackdrop");
   if(m) m.remove();
 }
 
 function showEditNameModal(){
   showModal(`
-    <h3>Edit name</h3>
-    <div class="field"><label>Display name</label><input type="text" id="nameInput" value="${ME.name}"></div>
+    <h3>Edit profile</h3>
+    <div class="field"><label>Username</label><input type="text" id="usernameInput" value="${ME.username || ""}" placeholder="Choose a username"></div>
+    <div class="field"><label>Full name</label><input type="text" value="${ME.realName || ME.name}" disabled><div class="sub" style="margin-top:5px;">Full name is managed by organizers.</div></div>
     <div class="field"><label>Avatar</label><div class="avatar-pick" id="avatarPick">
       ${AVATARS.map(a=>`<button type="button" class="avatar-opt ${a===ME.avatar?'sel':''}" data-a="${a}">${a}</button>`).join("")}
     </div></div>
@@ -1936,8 +2256,25 @@ function showEditNameModal(){
   });
   document.getElementById("cancelEdit").addEventListener("click", closeModal);
   document.getElementById("saveEdit").addEventListener("click", async ()=>{
-    const v = document.getElementById("nameInput").value.trim();
-    if(v){ ME.name = v; ME.avatar = chosenAvatar; await saveMe(); }
+    const username = document.getElementById("usernameInput").value.trim();
+    if(!/^[a-zA-Z0-9_.-]{2,24}$/.test(username)){
+      toast("Use 2–24 letters, numbers, dots, dashes, or underscores", "err");
+      return;
+    }
+    const users = await allUsers();
+    if(users.some(user=>user.id!==ME.id && String(user.username || "").toLowerCase()===username.toLowerCase())){
+      toast("That username is already taken", "err");
+      return;
+    }
+    ME.username = username;
+    ME.avatar = chosenAvatar;
+    await saveMe();
+    const participants = await approvedParticipants();
+    const participant = participants.find(item=>item.walletId===ME.id);
+    if(participant){
+      participant.username = username;
+      await setJSON("participants:list", participants, true);
+    }
     closeModal(); renderProfile(); refreshHeader();
   });
 }
@@ -1945,7 +2282,7 @@ function showEditNameModal(){
 function showAdminUnlockModal(){
   showModal(`
     <h3>Organizer access</h3>
-    <p style="color:var(--ink-dim); font-size:12.5px; margin-top:-8px;">Organizer access is not configured in this public build.</p>
+    <p style="color:var(--ink-dim); font-size:12.5px; margin-top:-8px;">Enter the organizer passcode given by your Haven HK lead.</p>
     <div class="field"><label>Passcode</label><input type="text" id="passInput" placeholder="Passcode"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" style="flex:1;" id="cancelPass">Cancel</button>
@@ -1965,13 +2302,11 @@ function showAdminUnlockModal(){
   });
 }
 
-// Signs out of the current wallet and returns to the login/onboarding view.
-// Note: this app doesn't use Firebase Authentication (only Firestore is
-// loaded — no firebase-auth SDK script, no firebase.auth() session), so
-// there's no auth().signOut() to call. "Signed in" here just means this
-// browser has a wallet ID saved locally; signing out clears that pointer
-// and any in-memory app state, which is the correct equivalent here.
+// Signs out of the current wallet and Firebase account.
 async function signOut(){
+  stopWalletSync();
+  stopInboxSync();
+  if(auth) await auth.signOut().catch(err=>console.error("Firebase sign-out failed", err));
   await setJSON("me:userId", "", false);
   ME = null;
   TX = [];
@@ -1988,7 +2323,8 @@ function renderMyQRPage(from){
     <div class="card" style="display:flex; flex-direction:column; align-items:center; padding:28px 20px; margin-top:8px;">
       <div id="myQrDisplay" style="background:#fff; padding:16px; border-radius:18px;"></div>
       <div class="big-avatar" style="margin-top:18px;">${ME.avatar}</div>
-      <h2 style="margin:10px 0 2px;">${ME.name}</h2>
+      <h2 style="margin:10px 0 2px;">${accountLabel(ME)}</h2>
+      ${ME.isAdmin ? `<span class="admin-badge" style="margin:6px 0 0;">Organizer</span>` : ""}
       <div class="idtag">${ME.id}</div>
     </div>
   `;
@@ -2012,10 +2348,9 @@ function renderAdmin(){
     {id:"overview", label:"Overview"},
     {id:"setup", label:"Setup"},
     {id:"announce", label:"Announce"},
-    {id:"games", label:"Games"},
     {id:"quests", label:"Quests"},
     {id:"shop", label:"Shop"},
-    {id:"pickups", label:"Pickups"},
+    {id:"pickups", label:"Orders"},
     {id:"content", label:"Content"},
     {id:"submissions", label:"Submissions"},
     {id:"users", label:"Participants"},
@@ -2046,7 +2381,6 @@ function renderAdmin(){
   if(ADMIN_TAB==="overview") renderAdminOverview();
   else if(ADMIN_TAB==="setup") renderAdminSetup();
   else if(ADMIN_TAB==="announce") renderAdminAnnouncements();
-  else if(ADMIN_TAB==="games") renderAdminGames();
   else if(ADMIN_TAB==="quests") renderAdminQuests();
   else if(ADMIN_TAB==="shop") renderAdminShop();
   else if(ADMIN_TAB==="pickups") renderAdminPickups();
@@ -2060,6 +2394,135 @@ async function allUsers(){
   const idx = (await getJSON("users:index", true)) || [];
   const results = await Promise.all(idx.map(uid => getJSON("users:"+uid, true)));
   return results.filter(Boolean);
+}
+
+async function approvedParticipants(){
+  const list = await getJSON("participants:list", true);
+  return Array.isArray(list) ? list : [];
+}
+
+function participantMatch(participant, identifier){
+  const value = identifier.trim().toLowerCase();
+  return String(participant.email || "").toLowerCase() === value ||
+    String(participant.username || "").toLowerCase() === value;
+}
+
+function organizerWalletAllowed(participant, walletId){
+  if(!participant || !participant.isAdmin) return false;
+  const allowed = Array.isArray(participant.walletIds) ? participant.walletIds : [];
+  return !allowed.length || allowed.includes(walletId);
+}
+
+function spreadsheetBoolean(value){
+  return ["yes","true","1","organizer","admin"].includes(String(value || "").trim().toLowerCase());
+}
+
+async function importParticipantList(file){
+  parseSpreadsheetFile(file, async (err, rows)=>{
+    if(err){ toast("Couldn't read participant list", "err"); return; }
+    await saveParticipantRows(rows);
+  });
+}
+
+async function saveParticipantRows(rows){
+    const participants = rows.map(row=>{
+      const email = getCol(row, "email", "email address");
+      const username = getCol(row, "username", "user name", "handle");
+      const realName = getCol(row, "real name", "name", "full name");
+      const walletId = getCol(row, "wallet id", "wallet");
+      const organizer = getCol(row, "organizer", "organizer access", "admin");
+      return email ? {email:email.toLowerCase(), username, realName, walletId, isAdmin:spreadsheetBoolean(organizer)} : null;
+    }).filter(Boolean);
+    if(!participants.length){ toast("No email or username columns found", "err"); return; }
+    const users = await allUsers();
+    const existingParticipants = await approvedParticipants();
+    const mergedParticipants = [...existingParticipants];
+    const protectedEmails = new Set();
+    let addedCount = 0;
+    for(const participant of participants){
+      const index = mergedParticipants.findIndex(existing =>
+        String(existing.email || "").toLowerCase()===participant.email.toLowerCase() ||
+        (participant.walletId && existing.walletId===participant.walletId)
+      );
+      if(index===-1){ mergedParticipants.push(participant); addedCount++; }
+      else{
+        const existing = mergedParticipants[index];
+        const linked = existing.walletId || users.some(user =>
+          String(user.email || "").toLowerCase()===String(existing.email || "").toLowerCase() &&
+          user.authUid
+        );
+        if(linked){
+          protectedEmails.add(String(existing.email || "").toLowerCase());
+        }else{
+          mergedParticipants[index] = {
+            ...existing,
+            email: existing.email || participant.email,
+            username: existing.username || participant.username,
+            realName: existing.realName || participant.realName,
+            walletId: existing.walletId || participant.walletId,
+            isAdmin: typeof existing.isAdmin === "boolean" ? existing.isAdmin : participant.isAdmin
+          };
+        }
+      }
+    }
+    for(const participant of mergedParticipants){
+      if(protectedEmails.has(String(participant.email || "").toLowerCase())) continue;
+      const linked = users.find(user =>
+        (participant.walletId && user.id.toLowerCase()===participant.walletId.toUpperCase()) ||
+        (participant.username && String(user.username||"").toLowerCase()===participant.username.toLowerCase())
+      );
+      if(linked){
+        participant.walletId = linked.id;
+        const updated = {...linked, email:participant.email || linked.email, username:participant.username || linked.username, realName:participant.realName || linked.realName || linked.name, isAdmin:participant.isAdmin};
+        await setJSON("users:"+linked.id, updated, true);
+      }
+    }
+    await setJSON("participants:list", mergedParticipants, true);
+    toast("Added "+addedCount+" new; updated "+(participants.length-addedCount)+" existing participants", "");
+    renderAdminUsers();
+}
+
+async function importParticipantSheet(url){
+  const rows = await fetchGoogleSheetRows(url);
+  await saveParticipantRows(rows);
+}
+
+async function deleteMissingParticipantsFromSheet(url){
+  const rows = await fetchGoogleSheetRows(url);
+  const emailsInSheet = new Set(rows.map(row=>getCol(row, "email", "email address").toLowerCase()).filter(Boolean));
+  if(!emailsInSheet.size) throw new Error("The sheet must contain an Email column");
+  const existing = await approvedParticipants();
+  const missing = existing.filter(participant=>!emailsInSheet.has(String(participant.email || "").toLowerCase()));
+  if(!missing.length){ toast("No participants to delete", ""); return; }
+  const names = missing.map(participant=>participant.realName || participant.email).join(", ");
+  if(!window.confirm("Permanently delete "+missing.length+" participant(s): "+names+"? This removes wallets, balances, transactions, and approval records.")) return;
+  const users = await allUsers();
+  const deletedIds = [];
+  for(const participant of missing){
+    const linked = users.find(user=>user.id===participant.walletId || String(user.email || "").toLowerCase()===String(participant.email || "").toLowerCase());
+    const walletId = linked ? linked.id : participant.walletId;
+    if(walletId){
+      await deleteJSON("users:"+walletId, true);
+      await deleteJSON("tx:"+walletId, true);
+      deletedIds.push(walletId);
+    }
+  }
+  const index = (await getJSON("users:index", true)) || [];
+  await setJSON("users:index", index.filter(id=>!deletedIds.includes(id)), true);
+  await setJSON("participants:list", existing.filter(participant=>emailsInSheet.has(String(participant.email || "").toLowerCase())), true);
+  toast("Deleted "+missing.length+" participant(s)", "");
+  renderAdminUsers();
+}
+
+async function fetchGoogleSheetRows(url){
+  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  if(!match) throw new Error("Paste a valid Google Sheets link");
+  const response = await fetch("https://docs.google.com/spreadsheets/d/"+match[1]+"/export?format=csv");
+  if(!response.ok) throw new Error("Google Sheet could not be downloaded. Check that it is shared as Anyone with the link — Viewer.");
+  const csv = await response.text();
+  const workbook = XLSX.read(csv, {type:"string"});
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(sheet, {defval:""});
 }
 
 async function renderAdminOverview(){
@@ -2084,7 +2547,7 @@ async function renderAdminOverview(){
       <div class="stat-tile"><div class="l">${CURRENCY} spent</div><div class="v">${totalSpent}</div></div>
     </div>
     <div class="stat-grid">
-      <div class="stat-tile"><div class="l">Pending pickups</div><div class="v" id="ovPending">${pendingCount}</div></div>
+      <div class="stat-tile"><div class="l">Pending orders</div><div class="v" id="ovPending">${pendingCount}</div></div>
     </div>
     <div class="section-head"><h3>Shop stock</h3></div>
     <div class="card" style="margin-bottom:18px;" id="ovShopStock"></div>
@@ -2392,13 +2855,15 @@ function renderAdminQuests(){
       <div class="quest-badge">🎯</div>
       <div class="flex1">
         <h5>${q.title} ${!q.active?'<span style="color:var(--ink-faint); font-weight:600;">· hidden</span>':''}</h5>
-        <div class="sub">Code: ${q.code} · +${q.reward} ${CURRENCY_SHORT}</div>
+        <div class="sub">${q.type || "main"} · Code: ${q.code} · +${q.reward} ${CURRENCY_SHORT}</div>
       </div>
+      <button class="icon-btn" data-who="${q.id}" title="Who completed this">${ICONS.users}</button>
       <button class="icon-btn" data-qr="${q.id}">${ICONS.scan}</button>
       <button class="icon-btn" data-edit="${q.id}">${ICONS.edit}</button>
       <button class="icon-btn" data-del="${q.id}">${ICONS.trash}</button>
     </div>
   `).join("");
+  body.querySelectorAll("[data-who]").forEach(b=> b.addEventListener("click", ()=>showQuestCompletionsModal(b.dataset.who)));
   body.querySelectorAll("[data-qr]").forEach(b=> b.addEventListener("click", ()=>showQuestQR(b.dataset.qr)));
   body.querySelectorAll("[data-edit]").forEach(b=> b.addEventListener("click", ()=>showAddQuestModal(b.dataset.edit)));
   body.querySelectorAll("[data-del]").forEach(b=> b.addEventListener("click", ()=>deleteQuest(b.dataset.del)));
@@ -2423,6 +2888,11 @@ function showAddQuestModal(editId){
     <h3>${editing?'Edit quest':'New quest'}</h3>
     <div class="field"><label>Title</label><input type="text" id="qTitle" value="${editing?editing.title:''}"></div>
     <div class="field"><label>Description</label><textarea id="qDesc" rows="2">${editing?editing.desc:''}</textarea></div>
+    <div class="field"><label>Quest type</label><select id="qType">
+      <option value="main" ${!editing || (editing.type||"main")==="main" ? "selected" : ""}>Main</option>
+      <option value="side" ${editing && editing.type==="side" ? "selected" : ""}>Side</option>
+      <option value="mystery" ${editing && editing.type==="mystery" ? "selected" : ""}>Mystery</option>
+    </select></div>
     <div class="field"><label>Redeem code</label><input type="text" id="qCode" value="${editing?editing.code:genId('',6)}" style="text-transform:uppercase;"></div>
     <div class="field"><label>Reward (${CURRENCY})</label><input type="number" id="qReward" value="${editing?editing.reward:50}"></div>
     <div class="modal-actions">
@@ -2434,19 +2904,137 @@ function showAddQuestModal(editId){
   document.getElementById("saveQ").addEventListener("click", async ()=>{
     const title = document.getElementById("qTitle").value.trim();
     const desc = document.getElementById("qDesc").value.trim();
+    const type = document.getElementById("qType").value;
     const code = document.getElementById("qCode").value.trim().toUpperCase();
     const reward = parseInt(document.getElementById("qReward").value) || 0;
     if(!title || !code){ toast("Title and code required", "err"); return; }
     await refreshShared();
     if(editing){
       const q = QUESTS.find(x=>x.id===editing.id);
-      Object.assign(q, {title, desc, code, reward});
+      Object.assign(q, {title, desc, code, reward, type});
     }else{
-      QUESTS.push({id:genId("q",4), title, desc, code, reward, active:true});
+      QUESTS.push({id:genId("q",4), title, desc, code, reward, active:true, type});
     }
     await setJSON("quests:list", QUESTS, true);
     closeModal(); renderAdminQuests(); toast("Quest saved", "");
   });
+}
+
+async function queueQuestOp(userId, op){
+  const previousUser = await getJSON("users:"+userId, true);
+  const wasCompleted = !!(previousUser && Array.isArray(previousUser.completed) && previousUser.completed.includes(op.questId));
+  const updatedUser = await updateJSON("users:"+userId, user=>{
+    if(!user) throw new Error("Participant wallet not found");
+    const completed = Array.isArray(user.completed) ? user.completed.slice() : [];
+    const amount = op.adjust ? Math.max(0, Number(op.reward) || 0) : 0;
+    if(op.type === "quest_add"){
+      if(completed.includes(op.questId)) return user;
+      completed.push(op.questId);
+      return {...user, completed, balance:Number(user.balance || 0) + amount};
+    }
+    if(op.type === "quest_remove"){
+      if(!completed.includes(op.questId)) return user;
+      return {...user, completed:completed.filter(id=>id!==op.questId), balance:Math.max(0, Number(user.balance || 0) - amount)};
+    }
+    throw new Error("Unsupported quest operation");
+  });
+  const before = await getJSON("tx:"+userId, true) || [];
+  const alreadyRecorded = before.some(t=>t.opId===op.id);
+  const changed = op.type === "quest_add" ? !wasCompleted : wasCompleted;
+  if(!alreadyRecorded && changed && updatedUser){
+    const amount = op.adjust ? Math.max(0, Number(op.reward) || 0) : 0;
+    const signedAmount = op.type === "quest_add" ? amount : -amount;
+    await updateJSON("tx:"+userId, tx=>[
+      {type:"quest", opId:op.id, desc:(op.type === "quest_add" ? "Completed: " : "Quest reset: ")+op.questTitle+" (organizer)", amount:signedAmount, ts:Date.now()},
+      ...(Array.isArray(tx) ? tx : [])
+    ]);
+  }
+  await updateJSON("inbox:"+userId, list=>
+    (Array.isArray(list) ? list : []).filter(item=>item.questId!==op.questId)
+  );
+  if(changed) await pushActivity({
+    type:"quest",
+    user:updatedUser.name,
+    detail:(op.type === "quest_add" ? "Added: " : "Removed: ")+op.questTitle+" (organizer)",
+    amount:op.adjust ? (op.type === "quest_add" ? op.reward : -op.reward) : 0,
+    ts:Date.now()
+  });
+}
+async function cancelQuestOp(userId, opId){
+  await updateJSON("inbox:"+userId, list => (Array.isArray(list) ? list : []).filter(o => o.id !== opId));
+}
+
+async function showQuestCompletionsModal(questId){
+  const quest = QUESTS.find(q => q.id === questId);
+  if(!quest) return;
+  showModal(`
+    <h3>${quest.title}</h3>
+    <p id="qcSummary" style="color:var(--ink-dim); font-size:12.5px; margin:-8px 0 12px;">Loading…</p>
+    <div class="field"><input type="text" id="qcSearch" placeholder="Search participants…"></div>
+    <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--ink-dim); margin-bottom:10px; cursor:pointer;">
+      <input type="checkbox" id="qcAdjust" checked> Also adjust Sparks (${quest.reward} ${CURRENCY_SHORT} on add / remove)
+    </label>
+    <div id="qcList" style="max-height:44vh; overflow-y:auto;"><div class="empty-note">Loading…</div></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" style="flex:1;" id="qcRefresh">Refresh</button>
+      <button class="btn btn-primary" style="flex:1;" id="qcClose">Done</button>
+    </div>
+  `);
+  let rows = [];
+
+  async function load(){
+    const users = await allUsers();
+    rows = users.map(u => ({
+      u,
+      done: (u.completed || []).includes(questId),
+    })).sort((a,b) => a.u.name.localeCompare(b.u.name));
+  }
+
+  function draw(){
+    const list = document.getElementById("qcList");
+    if(!list) return;                                   // modal was closed
+    const q = (document.getElementById("qcSearch").value || "").toLowerCase();
+    const done = rows.filter(r => r.done).length;
+    document.getElementById("qcSummary").textContent = done+" of "+rows.length+" completed";
+    const status = r => r.done ? `<span style="color:var(--accent);">Completed</span>` : "Not completed";
+    const btn = "padding:7px 12px; font-size:12px; flex-shrink:0;";
+    const action = r => r.done
+        ? `<button class="btn btn-danger" style="${btn}" data-act="quest_remove" data-uid="${r.u.id}">Remove</button>`
+        : `<button class="btn btn-primary" style="${btn}" data-act="quest_add" data-uid="${r.u.id}">Add</button>`;
+    const shown = rows.filter(r => (r.u.name+" "+r.u.id).toLowerCase().includes(q));
+    list.innerHTML = shown.map(r => `
+      <div class="list-item" style="gap:10px;">
+        <span class="lab" style="min-width:0;">
+          <span class="list-icon" style="border-radius:50%; font-size:15px;">${r.u.avatar}</span>
+          <span style="display:flex; flex-direction:column; min-width:0;">
+            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${r.u.name}</span>
+            <span style="font-size:11px; color:var(--ink-faint);">${status(r)}</span>
+          </span>
+        </span>
+        ${action(r)}
+      </div>`).join("") || `<div class="empty-note">No matches</div>`;
+
+    list.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", async ()=>{
+      b.disabled = true;
+      try{
+        await queueQuestOp(b.dataset.uid, {
+          id: genId("op",6), type: b.dataset.act, questId, questTitle: quest.title,
+          reward: quest.reward, adjust: document.getElementById("qcAdjust").checked,
+          by: ME.name, ts: Date.now(),
+        });
+        await load(); draw();
+      }catch(err){
+        console.error(err);
+        toast("Couldn't save — check your connection", "err");
+        b.disabled = false;
+      }
+    }));
+  }
+
+  document.getElementById("qcClose").addEventListener("click", closeModal);
+  document.getElementById("qcRefresh").addEventListener("click", async ()=>{ await load(); draw(); });
+  document.getElementById("qcSearch").addEventListener("input", draw);
+  await load(); draw();
 }
 
 async function deleteQuest(id){
@@ -2458,29 +3046,64 @@ async function deleteQuest(id){
 
 function renderAdminShop(){
   const body = document.getElementById("adminBody");
-  if(!SHOP.length){ body.innerHTML = `<div class="empty-note">No items yet. Tap + to add one.</div>`; return; }
-  body.innerHTML = SHOP.map(i=>`
+  const tags = SHOP_TAGS.slice().sort();
+  body.innerHTML = `
+    <div class="card" style="margin-bottom:14px;">
+      <h5 style="margin:0 0 4px;">Shop tags</h5>
+      <div class="sub" style="margin-bottom:10px;">Create categories such as Food, Merch, or Perks. They will appear as filters in the shop.</div>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="newShopTag" placeholder="New tag" maxlength="24">
+        <button class="btn btn-primary" id="addShopTag">Add</button>
+      </div>
+      <div class="shop-tag-admin">${tags.map(tag=>`<span>${tag}<button type="button" data-remove-tag="${tag}" aria-label="Remove ${tag}">×</button></span>`).join("") || `<span class="sub">No tags yet</span>`}</div>
+    </div>
+    ${SHOP.length ? SHOP.map(i=>`
     <div class="admin-row">
       <div class="shop-emoji" style="width:38px;height:38px;">${i.emoji}</div>
       <div class="flex1">
         <h5>${i.name}</h5>
-        <div class="sub">${i.price} ${CURRENCY_SHORT} · ${i.stock} in stock</div>
+        <div class="sub">${i.price} ${CURRENCY_SHORT} · ${i.stock} in stock${Array.isArray(i.tags) && i.tags.length ? " · "+i.tags.join(", ") : ""}</div>
       </div>
       <button class="icon-btn" data-edit="${i.id}">${ICONS.edit}</button>
       <button class="icon-btn" data-del="${i.id}">${ICONS.trash}</button>
     </div>
-  `).join("");
+    `).join("") : `<div class="empty-note">No items yet. Tap + to add one.</div>`}
+  `;
+  document.getElementById("addShopTag").addEventListener("click", async ()=>{
+    const input = document.getElementById("newShopTag");
+    const tag = input.value.trim().toLowerCase().replace(/\s+/g," ");
+    if(!tag){ toast("Enter a tag name", "err"); return; }
+    if(tags.includes(tag)){ toast("That tag already exists", "err"); return; }
+    tags.push(tag);
+    await setJSON("shop:tags", tags, true);
+    SHOP_TAGS = tags;
+    renderAdminShop(); toast("Tag added", "");
+  });
+  body.querySelectorAll("[data-remove-tag]").forEach(b=> b.addEventListener("click", async ()=>{
+    const tag = b.dataset.removeTag;
+    const next = tags.filter(x=>x!==tag);
+    await setJSON("shop:tags", next, true);
+    SHOP_TAGS = next;
+    SHOP.forEach(item=>{ if(Array.isArray(item.tags)) item.tags=item.tags.filter(x=>x!==tag); });
+    await setJSON("shop:items", SHOP, true);
+    renderAdminShop(); toast("Tag removed", "");
+  }));
   body.querySelectorAll("[data-edit]").forEach(b=> b.addEventListener("click", ()=>showAddItemModal(b.dataset.edit)));
   body.querySelectorAll("[data-del]").forEach(b=> b.addEventListener("click", ()=>deleteItem(b.dataset.del)));
 }
 
 function showAddItemModal(editId){
   const editing = editId ? SHOP.find(i=>i.id===editId) : null;
+  const tags = SHOP_TAGS;
+  const emojiChoices = ["😀","😎","🥳","🤩","😂","😊","🤔","😴","😈","👻","🤖","💩","❤️","💛","💚","💙","💜","🖤","⭐","🌟","✨","💫","🔥","⚡","🎉","🎊","🎁","🏆","🎟️","🎮","🕹️","🎲","🧩","🎨","🎵","🎤","📚","💡","🚀","🌈","☀️","🌙","🌸","🌻","🍎","🍔","🍕","🍟","🌭","🍿","🍩","🍪","🍫","🍬","🍭","🧁","🎂","🍓","🍉","🍇","🥤","🧋","☕","🍵","👕","👚","🧢","👟","🎒","💎","🛍️","📱","💻","⌚","🔑","🧸","🪄","🪙","💰","💳","🏠","🚗","✈️","🌍","🐶","🐱","🐼","🦄","🐝","🌱","🌿","🍀","🌵"];
   showModal(`
     <h3>${editing?'Edit item':'New item'}</h3>
     <div class="field"><label>Name</label><input type="text" id="iName" value="${editing?editing.name:''}"></div>
-    <div class="field"><label>Emoji</label><input type="text" id="iEmoji" value="${editing?editing.emoji:'🎁'}"></div>
+    <div class="field"><label>Emoji</label><input type="text" id="iEmoji" value="${editing?editing.emoji:'🎁'}" maxlength="8">
+      <div class="emoji-picker">${emojiChoices.map(emoji=>`<button type="button" data-emoji="${emoji}">${emoji}</button>`).join("")}</div>
+    </div>
     <div class="field"><label>Description</label><input type="text" id="iDesc" value="${editing?editing.desc:''}"></div>
+    ${tags.length ? `<div class="field"><label>Tags</label><div class="item-tag-choices">${tags.map(tag=>`<label><input type="checkbox" value="${tag}" ${editing && Array.isArray(editing.tags) && editing.tags.includes(tag) ? "checked" : ""}> ${tag}</label>`).join("")}</div></div>` : ""}
     <div class="field"><label>Price (${CURRENCY})</label><input type="number" id="iPrice" value="${editing?editing.price:50}"></div>
     <div class="field"><label>Stock</label><input type="number" id="iStock" value="${editing?editing.stock:10}"></div>
     <div class="modal-actions">
@@ -2488,20 +3111,22 @@ function showAddItemModal(editId){
       <button class="btn btn-primary" style="flex:1;" id="saveI">${editing?'Save':'Create'}</button>
     </div>
   `);
+  document.querySelectorAll("[data-emoji]").forEach(b=> b.addEventListener("click", ()=>{ document.getElementById("iEmoji").value=b.dataset.emoji; }));
   document.getElementById("cancelI").addEventListener("click", closeModal);
   document.getElementById("saveI").addEventListener("click", async ()=>{
     const name = document.getElementById("iName").value.trim();
     const emoji = document.getElementById("iEmoji").value.trim() || "🎁";
     const desc = document.getElementById("iDesc").value.trim();
+    const itemTags = [...document.querySelectorAll(".item-tag-choices input:checked")].map(input=>input.value);
     const price = parseInt(document.getElementById("iPrice").value) || 0;
     const stock = parseInt(document.getElementById("iStock").value) || 0;
     if(!name){ toast("Name required", "err"); return; }
     await refreshShared();
     if(editing){
       const it = SHOP.find(x=>x.id===editing.id);
-      Object.assign(it, {name, emoji, desc, price, stock});
+      Object.assign(it, {name, emoji, desc, price, stock, tags:itemTags});
     }else{
-      SHOP.push({id:genId("s",4), name, emoji, desc, price, stock});
+      SHOP.push({id:genId("s",4), name, emoji, desc, price, stock, tags:itemTags});
     }
     await setJSON("shop:items", SHOP, true);
     closeModal(); renderAdminShop(); toast("Item saved", "");
@@ -2518,22 +3143,26 @@ async function deleteItem(id){
 function renderAdminPickups(){
   const body = document.getElementById("adminBody");
   body.innerHTML = `<div class="empty-note">Loading…</div>`;
+  const orderLines = r => Array.isArray(r.items) && r.items.length
+    ? r.items
+    : [{itemId:r.itemId, itemName:r.itemName, itemEmoji:r.itemEmoji, quantity:1, price:r.price || r.total || 0}];
 
   const pendingRow = r => `
     <div class="admin-row">
       <div class="shop-emoji" style="width:38px;height:38px;">${r.itemEmoji}</div>
       <div class="flex1">
         <h5>${r.userAvatar} ${r.userName}</h5>
-        <div class="sub">${r.itemName} · ${new Date(r.ts).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
+        <div class="sub">${r.itemName} · ${r.total||r.price} ${CURRENCY_SHORT} · ${new Date(r.ts).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
       </div>
-      <button class="btn btn-primary" style="padding:9px 14px; font-size:12px; flex-shrink:0;" data-fulfill="${r.id}">Give out</button>
+      <button class="btn btn-primary" style="padding:9px 14px; font-size:12px; flex-shrink:0;" data-fulfill="${r.id}">Accept</button>
+      <button class="btn btn-danger" style="padding:9px 12px; font-size:11px; flex-shrink:0;" data-decline="${r.id}">Decline & refund</button>
     </div>`;
   const fulfilledRow = r => `
     <div class="admin-row" style="opacity:.6;">
       <div class="shop-emoji" style="width:38px;height:38px;">${r.itemEmoji}</div>
       <div class="flex1">
         <h5>${r.userAvatar} ${r.userName}</h5>
-        <div class="sub">${r.itemName} · given out ${new Date(r.fulfilledAt).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
+        <div class="sub">${r.itemName} · accepted ${new Date(r.fulfilledAt).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
       </div>
       <button class="icon-btn" data-undo="${r.id}" title="Move back to pending">${ICONS.trash}</button>
     </div>`;
@@ -2542,16 +3171,17 @@ function renderAdminPickups(){
     redemptions = redemptions || [];
     const pending = redemptions.filter(r=>r.status==="pending");
     const fulfilled = redemptions.filter(r=>r.status==="fulfilled").slice(0,40);
+    const declined = redemptions.filter(r=>r.status==="declined").slice(0,40);
     const prevQuery = document.getElementById("pickupSearch")?.value || "";
 
     body.innerHTML = `
       <div class="field"><input type="text" id="pickupSearch" placeholder="Search by name or item…" value="${prevQuery}"></div>
-      <div class="section-head" style="margin-top:0;"><h3>Waiting for pickup (${pending.length})</h3></div>
-      <div id="pendingList">${pending.length ? pending.map(pendingRow).join("") : '<div class="empty-note">Nothing waiting for pickup right now.</div>'}</div>
-      ${fulfilled.length ? `
-        <div class="section-head"><h3>Already given out</h3></div>
-        <div id="fulfilledList">${fulfilled.map(fulfilledRow).join("")}</div>
-      ` : ""}
+      <div class="section-head" style="margin-top:0;"><h3>Pending (${pending.length})</h3></div>
+      <div id="pendingList">${pending.length ? pending.map(pendingRow).join("") : '<div class="empty-note">No pending orders.</div>'}</div>
+      <div class="section-head"><h3>Accepted (${fulfilled.length})</h3></div>
+      <div id="fulfilledList">${fulfilled.length ? fulfilled.map(fulfilledRow).join("") : '<div class="empty-note">No accepted orders.</div>'}</div>
+      <div class="section-head"><h3>Declined (${declined.length})</h3></div>
+      <div id="declinedList">${declined.length ? declined.map(r=>`<div class="admin-row" style="opacity:.65;"><div class="shop-emoji" style="width:38px;height:38px;">${r.itemEmoji}</div><div class="flex1"><h5>${r.userAvatar} ${r.userName}</h5><div class="sub">${r.itemName} · refunded</div></div><button class="btn btn-ghost" style="padding:8px 11px; font-size:11px; flex-shrink:0;" data-undo="${r.id}" title="Reaccept order">Reaccept</button></div>`).join("") : '<div class="empty-note">No declined orders.</div>'}</div>
     `;
 
     function applyFilter(){
@@ -2567,14 +3197,63 @@ function renderAdminPickups(){
     body.querySelectorAll("[data-fulfill]").forEach(b=> b.addEventListener("click", async ()=>{
       const list = (await getJSON("redemptions:list", true)) || [];
       const r = list.find(x=>x.id===b.dataset.fulfill);
-      if(r){ r.status = "fulfilled"; r.fulfilledAt = Date.now(); await setJSON("redemptions:list", list, true); }
-      toast("Marked as given out", "");
+      if(r && r.status==="pending"){
+        r.status = "fulfilled"; r.fulfilledAt = Date.now();
+        await setJSON("redemptions:list", list, true);
+        toast("Marked as given out", "");
+      }
     }));
     body.querySelectorAll("[data-undo]").forEach(b=> b.addEventListener("click", async ()=>{
       const list = (await getJSON("redemptions:list", true)) || [];
       const r = list.find(x=>x.id===b.dataset.undo);
-      if(r){ r.status = "pending"; r.fulfilledAt = null; await setJSON("redemptions:list", list, true); }
-      toast("Moved back to pending", "");
+      if(!r) return;
+      if(r.status==="fulfilled"){
+        r.status = "pending"; r.fulfilledAt = null;
+        await setJSON("redemptions:list", list, true);
+        toast("Order moved back to pending", "");
+        return;
+      }
+      if(r.status!=="declined") return;
+      const user = await getJSON("users:"+r.userId, true);
+      const total = r.total || r.price || orderLines(r).reduce((sum,line)=>sum + (line.price||0)*(line.quantity||1),0);
+      if(!user || user.balance < total){ toast("User does not have enough Sparks to reaccept", "err"); return; }
+      const shop = (await getJSON("shop:items", true)) || [];
+      const insufficient = orderLines(r).find(line=>{
+        const item = shop.find(x=>x.id===line.itemId);
+        return !item || item.stock < (line.quantity||1);
+      });
+      if(insufficient){ toast("Not enough stock to reaccept this order", "err"); return; }
+      orderLines(r).forEach(line=>{
+        const item = shop.find(x=>x.id===line.itemId);
+        item.stock -= line.quantity||1;
+      });
+      user.balance -= total;
+      const tx = (await getJSON("tx:"+user.id, true)) || [];
+      tx.unshift({type:"purchase", desc:"Order reaccepted: "+(r.itemName||r.id), amount:-total, ts:Date.now()});
+      r.status = "pending"; r.declinedAt = null;
+      await Promise.all([
+        setJSON("users:"+user.id, user, true),
+        setJSON("tx:"+user.id, tx, true),
+        setJSON("shop:items", shop, true),
+        setJSON("redemptions:list", list, true),
+      ]);
+      toast("Order reaccepted and charged again", "");
+    }));
+    body.querySelectorAll("[data-decline]").forEach(b=> b.addEventListener("click", async ()=>{
+      const list = (await getJSON("redemptions:list", true)) || [];
+      const r = list.find(x=>x.id===b.dataset.decline);
+      if(!r || r.status!=="pending") return;
+      r.status="declined"; r.declinedAt=Date.now();
+      const user=await getJSON("users:"+r.userId,true);
+      const refund=r.total||r.price||0;
+      const shop = (await getJSON("shop:items", true)) || [];
+      orderLines(r).forEach(line=>{
+        const item = shop.find(x=>x.id===line.itemId);
+        if(item) item.stock += line.quantity||1;
+      });
+      if(user){ user.balance += refund; await setJSON("users:"+r.userId,user,true); const tx=(await getJSON("tx:"+r.userId,true))||[]; tx.unshift({type:"refund",desc:"Refund for "+(r.itemName||"order"),amount:refund,ts:Date.now()}); await setJSON("tx:"+r.userId,tx,true); }
+      await Promise.all([setJSON("shop:items",shop,true), setJSON("redemptions:list",list,true)]);
+      toast("Order declined, refunded, and restocked", "");
     }));
   }
 
@@ -2614,7 +3293,8 @@ async function renderAdminSchedule(containerId){
     body.innerHTML = `
       <div class="card" style="margin-bottom:16px;">
         <h5 style="margin:0 0 4px;">Upload schedule</h5>
-        <div class="sub" style="margin-bottom:10px;">.xlsx, .xls or .csv — columns: Day, Time, Title, Description, Location. Uploading replaces the current schedule.</div>
+        <div class="sub" style="margin-bottom:10px;">Google Sheet or .xlsx, .xls, .csv — columns: Day, Time, Title, Description, Location. Importing replaces the current schedule.</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;"><input type="url" id="scheduleSheetUrl" placeholder="Paste Google Sheet link" style="flex:1;"><button class="btn btn-primary" id="importScheduleSheetBtn">Import sheet</button></div>
         <input type="file" id="scheduleFile" accept=".xlsx,.xls,.csv">
       </div>
       <div class="section-head" style="margin-top:0;"><h3>${items.length} item${items.length===1?'':'s'} scheduled</h3>${items.length?'<button class="link" id="clearScheduleBtn">Clear all</button>':''}</div>
@@ -2640,6 +3320,16 @@ async function renderAdminSchedule(containerId){
         if(!parsed.length){ toast("No usable rows found — check the column headers", "err"); return; }
         await setJSON("schedule:list", parsed, true);
         toast("Schedule uploaded — "+parsed.length+" items", "");
+      });
+      document.getElementById("importScheduleSheetBtn").addEventListener("click", async ()=>{
+        const url = document.getElementById("scheduleSheetUrl").value.trim();
+        if(!url){ toast("Paste a Google Sheet link first", "err"); return; }
+        try{
+          const parsed = convertScheduleRows(await fetchGoogleSheetRows(url));
+          if(!parsed.length) throw new Error("No usable schedule rows found");
+          await setJSON("schedule:list", parsed, true);
+          toast("Schedule imported — "+parsed.length+" items", "");
+        }catch(err){ console.error("Google Sheet schedule import failed", err); toast(err.message || "Could not import schedule", "err"); }
       });
     });
     const clearBtn = document.getElementById("clearScheduleBtn");
@@ -2673,7 +3363,8 @@ async function renderAdminMeals(containerId){
     body.innerHTML = `
       <div class="card" style="margin-bottom:16px;">
         <h5 style="margin:0 0 4px;">Upload menu</h5>
-        <div class="sub" style="margin-bottom:10px;">.xlsx, .xls or .csv — columns: Day, MealType, ItemName, Category, Notes. Uploading replaces the current menu.</div>
+        <div class="sub" style="margin-bottom:10px;">Google Sheet or .xlsx, .xls, .csv — columns: Day, MealType, ItemName, Category, Notes. Importing replaces the current menu.</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;"><input type="url" id="mealsSheetUrl" placeholder="Paste Google Sheet link" style="flex:1;"><button class="btn btn-primary" id="importMealsSheetBtn">Import sheet</button></div>
         <input type="file" id="mealsFile" accept=".xlsx,.xls,.csv">
       </div>
       <div class="section-head" style="margin-top:0;"><h3>${items.length} item${items.length===1?'':'s'} on the menu</h3>${items.length?'<button class="link" id="clearMealsBtn">Clear all</button>':''}</div>
@@ -2706,6 +3397,24 @@ async function renderAdminMeals(containerId){
         if(!parsed.length){ toast("No usable rows found — check the column headers", "err"); return; }
         await setJSON("meals:list", parsed, true);
         toast("Menu uploaded — "+parsed.length+" items", "");
+      });
+      document.getElementById("importMealsSheetBtn").addEventListener("click", async ()=>{
+        const url = document.getElementById("mealsSheetUrl").value.trim();
+        if(!url){ toast("Paste a Google Sheet link first", "err"); return; }
+        try{
+          const rows = await fetchGoogleSheetRows(url);
+          const parsed = rows.map(r => ({
+            id: genId("ml",5),
+            day: getCol(r, "Day"),
+            mealType: getCol(r, "MealType", "Meal Type", "Meal"),
+            itemName: getCol(r, "ItemName", "Item Name", "Item"),
+            category: getCol(r, "Category"),
+            notes: getCol(r, "Notes"),
+          })).filter(i => i.itemName);
+          if(!parsed.length) throw new Error("No usable menu rows found");
+          await setJSON("meals:list", parsed, true);
+          toast("Menu imported — "+parsed.length+" items", "");
+        }catch(err){ console.error("Google Sheet menu import failed", err); toast(err.message || "Could not import menu", "err"); }
       });
     });
     const clearBtn = document.getElementById("clearMealsBtn");
@@ -2787,15 +3496,62 @@ function renderAdminSubmissions(){
 
 async function renderAdminUsers(){
   const body = document.getElementById("adminBody");
-  body.innerHTML = `<div class="empty-note">Loading…</div>`;
+  body.innerHTML = `
+    <div class="card" style="margin-bottom:14px;">
+      <h3 style="margin-top:0;">Approved participants</h3>
+      <p class="page-sub">Use a public Google Sheet link or upload CSV/Excel. Required: email and real name. Optional: Organizer (yes/no). Wallet IDs are generated on first login; participants choose their usernames.</p>
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <input type="url" id="participantSheetUrl" placeholder="Paste Google Sheet link" style="flex:1;">
+        <button class="btn btn-primary" id="importParticipantSheetBtn">Import sheet</button>
+      </div>
+      <button class="btn btn-danger btn-block" id="deleteMissingParticipantsBtn">Sync sheet and delete missing participants</button>
+      <input type="file" id="participantImport" accept=".csv,.xlsx,.xls">
+    </div>
+    <div id="registeredUsers"><div class="empty-note">Loading…</div></div>
+  `;
+  document.getElementById("participantImport").addEventListener("change", e=>{
+    const file = e.target.files[0];
+    if(file) importParticipantList(file);
+  });
+  document.getElementById("importParticipantSheetBtn").addEventListener("click", async ()=>{
+    const url = document.getElementById("participantSheetUrl").value.trim();
+    if(!url){ toast("Paste a Google Sheet link first", "err"); return; }
+    try{
+      await importParticipantSheet(url);
+    }catch(err){
+      console.error("Google Sheet import failed", err);
+      toast(err.message || "Could not import Google Sheet", "err");
+    }
+  });
+  document.getElementById("deleteMissingParticipantsBtn").addEventListener("click", async ()=>{
+    const url = document.getElementById("participantSheetUrl").value.trim();
+    if(!url){ toast("Paste a Google Sheet link first", "err"); return; }
+    try{ await deleteMissingParticipantsFromSheet(url); }
+    catch(err){ console.error("Participant deletion sync failed", err); toast(err.message || "Could not sync deletions", "err"); }
+  });
+  const usersBody = document.getElementById("registeredUsers");
 
   async function draw(){
-    const [users, groups] = await Promise.all([allUsers(), allGroups()]);
+    const [users, groups, participants] = await Promise.all([allUsers(), allGroups(), approvedParticipants()]);
     users.sort((a,b)=> b.balance - a.balance);
     const groupNames = uid => groups.filter(g=>g.memberIds.includes(uid)).map(g=>g.name).join(", ");
     const prevQuery = document.getElementById("userSearch")?.value || "";
-    if(!users.length){ body.innerHTML = `<div class="empty-note">No participants yet.</div>`; return; }
-    body.innerHTML = `<div class="field"><input type="text" id="userSearch" placeholder="Search participants…" value="${prevQuery}"></div>` +
+    const participantRows = participants.map(participant=>{
+      const linked = users.find(user=>user.id===participant.walletId || (participant.username && String(user.username||"").toLowerCase()===participant.username.toLowerCase()));
+      const email = participant.email || linked?.email || "—";
+      const passwordStatus = linked?.authUid ? "Set" : "Not set";
+      return `<div class="admin-row participant-approved-row">
+        <div class="flex1">
+          <h5>${participant.realName || participant.username || email}</h5>
+          <div class="sub">${participant.username || "No username"} · ${email} · Wallet: ${linked?.id || participant.walletId || "Not linked"}</div>
+        </div>
+        <span class="admin-badge">${passwordStatus}</span>
+        ${email !== "—" ? `<button class="btn btn-ghost" data-reset-email="${email}">Reset password</button>` : ""}
+      </div>`;
+    }).join("");
+    usersBody.innerHTML = `${participants.length ? `<div class="section-head"><h3>Approved roster (${participants.length})</h3></div><div class="card" style="margin-bottom:16px;">${participantRows}</div>` : ""}` +
+      `<div class="field"><input type="text" id="userSearch" placeholder="Search registered wallets…" value="${prevQuery}"></div>` +
+      (users.length ?
       users.map(u=>`
         <div class="admin-row">
           <div class="quest-badge" style="background:var(--surface-2);">${u.avatar}</div>
@@ -2805,16 +3561,23 @@ async function renderAdminUsers(){
           </div>
           <button class="icon-btn" data-adjust="${u.id}" title="Adjust balance / organizer access">${ICONS.bolt}</button>
         </div>
-      `).join("");
+      `).join("") : `<div class="empty-note">No registered wallets yet.</div>`);
     function applyFilter(){
       const q = document.getElementById("userSearch").value.toLowerCase();
-      body.querySelectorAll(".admin-row").forEach(r=>{
+      usersBody.querySelectorAll(".admin-row").forEach(r=>{
         r.style.display = r.textContent.toLowerCase().includes(q) ? "flex" : "none";
       });
     }
     document.getElementById("userSearch").addEventListener("input", applyFilter);
     if(prevQuery) applyFilter();
-    body.querySelectorAll("[data-adjust]").forEach(b=> b.addEventListener("click", ()=>showAdjustModal(b.dataset.adjust, users)));
+    usersBody.querySelectorAll("[data-adjust]").forEach(b=> b.addEventListener("click", ()=>showAdjustModal(b.dataset.adjust, users)));
+    usersBody.querySelectorAll("[data-reset-email]").forEach(b=> b.addEventListener("click", async ()=>{
+      try{
+        if(!auth) throw new Error("Firebase Authentication is not enabled");
+        await auth.sendPasswordResetEmail(b.dataset.resetEmail);
+        toast("Password reset email sent", "");
+      }catch(err){ console.error("organizer password reset failed", err); toast(err.message || "Could not send reset email", "err"); }
+    }));
   }
 
   await draw();
@@ -2899,70 +3662,230 @@ function showOnboarding(){
       <h1>Haven Pay</h1>
       <p class="lead">Scan quests, spend ${CURRENCY} in the shop, and don't lose it all on the wheel.</p>
       <div class="tab-switch">
-        <button class="active" id="tabNew">New wallet</button>
-        <button id="tabExisting">I have a wallet</button>
+        <button class="active" id="tabParticipant">Participant login</button>
+        <button id="tabExisting">Wallet ID</button>
       </div>
       <div id="onboardBody"></div>
     </div>
   `;
-  document.getElementById("tabNew").addEventListener("click", ()=>showOnboardNew());
+  document.getElementById("tabParticipant").addEventListener("click", ()=>showParticipantLogin());
   document.getElementById("tabExisting").addEventListener("click", ()=>showOnboardExisting());
-  showOnboardNew();
+  showParticipantLogin();
   function setActiveTab(id){
-    document.getElementById("tabNew").classList.toggle("active", id==="new");
+    document.getElementById("tabParticipant").classList.toggle("active", id==="participant");
     document.getElementById("tabExisting").classList.toggle("active", id==="existing");
   }
-  function showOnboardNew(){
-    setActiveTab("new");
-    let chosen = AVATARS[0];
-    document.getElementById("onboardBody").innerHTML = `
-      <div class="field"><label>Your name</label><input type="text" id="newName" placeholder="e.g. Chloe Lam"></div>
-      <div class="field"><label>Pick an avatar</label><div class="avatar-pick" id="newAvatarPick">
-        ${AVATARS.map((a,i)=>`<button type="button" class="avatar-opt ${i===0?'sel':''}" data-a="${a}">${a}</button>`).join("")}
-      </div></div>
-      <button class="btn btn-primary btn-block" id="createWalletBtn">Create wallet</button>
-    `;
-    document.querySelectorAll("#newAvatarPick .avatar-opt").forEach(b=>{
-      b.addEventListener("click", ()=>{
-        chosen = b.dataset.a;
-        document.querySelectorAll("#newAvatarPick .avatar-opt").forEach(x=>x.classList.remove("sel"));
-        b.classList.add("sel");
-      });
-    });
-    document.getElementById("createWalletBtn").addEventListener("click", async ()=>{
-      const name = document.getElementById("newName").value.trim();
-      if(!name){ toast("Enter your name", "err"); return; }
+  async function signInApprovedParticipant(identifier, password, chosenUsername, allowCreate){
+    if(!auth) throw new Error("Firebase Authentication is not enabled");
+    const participants = await approvedParticipants();
+    const participant = participants.find(p=>participantMatch(p, identifier));
+    if(!participant) throw new Error("You are not on the approved participant list");
+    if(!participant.email) throw new Error("This participant has no email address");
+    let credential;
+    try{
+      credential = await auth.signInWithEmailAndPassword(participant.email, password);
+    }catch(err){
+      if(!allowCreate) throw err;
+      if(err.code !== "auth/user-not-found" && err.code !== "auth/invalid-credential") throw err;
+      try{
+        credential = await auth.createUserWithEmailAndPassword(participant.email, password);
+      }catch(createErr){
+        if(createErr.code === "auth/email-already-in-use"){
+          throw new Error("This account already exists, but the password is incorrect. Use the password reset button.");
+        }
+        throw createErr;
+      }
+    }
+    const users = await allUsers();
+    let user = users.find(u=>u.authUid===credential.user.uid || (participant.walletId && u.id===participant.walletId));
+    if(!user) user = users.find(u=>String(u.email||"").toLowerCase()===participant.email.toLowerCase());
+    if(!user){
+      if(!chosenUsername) throw new Error("Choose a username for your new wallet");
+      if(!/^[a-zA-Z0-9_.-]{2,24}$/.test(chosenUsername)){
+        throw new Error("Username must be 2–24 letters, numbers, dots, dashes, or underscores");
+      }
+      if(users.some(existing=>String(existing.username||"").toLowerCase()===chosenUsername.toLowerCase())){
+        throw new Error("That username is already taken");
+      }
       const id = genId("HVN", 4);
-      const user = {id, name, avatar:chosen, balance:100, isAdmin:false, completed:[], joinedAt:Date.now()};
+      user = {id, username:chosenUsername, realName:participant.realName || participant.email, name:participant.realName || participant.email, email:participant.email, authUid:credential.user.uid, avatar:AVATARS[0], balance:100, isAdmin:!!participant.isAdmin, completed:[], joinedAt:Date.now()};
       await setJSON("users:"+id, user, true);
       const idx = (await getJSON("users:index", true)) || [];
-      idx.push(id);
-      await setJSON("users:index", idx, true);
+      await setJSON("users:index", [...idx, id], true);
       await setJSON("tx:"+id, [{type:"bonus", desc:"Welcome bonus", amount:100, ts:Date.now()}], true);
-      await pushActivity({type:"join", user:name, detail:"Joined Haven Pay", amount:100, ts:Date.now()});
-      await loadUser(id);
-      await refreshShared();
-      refreshHeader();
-      goTo("home");
+      participant.walletId = id;
+      participant.username = user.username;
+      await setJSON("participants:list", participants, true);
+    }else{
+      if(chosenUsername && user.username && chosenUsername.toLowerCase()!==String(user.username).toLowerCase()){
+        throw new Error("This account already has a username and cannot be changed here");
+      }
+      if(!user.authUid || !user.email){
+        user = {...user, authUid:credential.user.uid, email:participant.email, username:user.username || participant.username, realName:user.realName || participant.realName, isAdmin:!!participant.isAdmin};
+        await setJSON("users:"+user.id, user, true);
+      }
+      if(!participant.walletId){
+        participant.walletId = user.id;
+        participant.username = user.username || participant.username;
+        await setJSON("participants:list", participants, true);
+      }
+    }
+    await loadUser(user.id);
+    await refreshShared();
+    refreshHeader();
+    goTo("home");
+  }
+  function showParticipantLogin(){
+    setActiveTab("participant");
+    document.getElementById("onboardBody").innerHTML = `
+      <div class="tab-switch" style="margin-bottom:16px;">
+        <button class="active" id="participantSignInTab">Sign in</button>
+        <button id="participantSignUpTab">Sign up</button>
+      </div>
+      <div class="field"><label>Email or username</label><input type="text" id="participantIdentifier" autocomplete="username"></div>
+      <div class="field"><label>Password</label><div style="display:flex;gap:8px;"><input type="password" id="participantPassword" autocomplete="new-password" style="flex:1;"><button type="button" class="btn btn-ghost" id="toggleParticipantPassword">Show</button></div></div>
+      <button class="btn btn-primary btn-block" id="participantLoginBtn">Sign in</button>
+      <button class="btn btn-ghost btn-block" id="participantResetBtn" style="margin-top:8px;">Email me a password reset link</button>
+      <p class="page-sub" style="margin-top:12px;">Use your approved email or username and password.</p>
+    `;
+    document.getElementById("participantSignInTab").addEventListener("click", showParticipantLogin);
+    document.getElementById("participantSignUpTab").addEventListener("click", showParticipantSignup);
+    document.getElementById("participantLoginBtn").addEventListener("click", async ()=>{
+      const identifier = document.getElementById("participantIdentifier").value.trim();
+      const password = document.getElementById("participantPassword").value;
+      if(!identifier || password.length<6){ toast("Enter an identifier and a password of at least 6 characters", "err"); return; }
+      try{ await signInApprovedParticipant(identifier, password, "", false); }
+      catch(err){ console.error("participant sign-in failed", err); toast(err.message || "Could not sign in", "err"); }
+    });
+    document.getElementById("toggleParticipantPassword").addEventListener("click", ()=>{
+      const input = document.getElementById("participantPassword");
+      const button = document.getElementById("toggleParticipantPassword");
+      const visible = input.type === "text";
+      input.type = visible ? "password" : "text";
+      button.textContent = visible ? "Show" : "Hide";
+    });
+    document.getElementById("participantResetBtn").addEventListener("click", async ()=>{
+      const identifier = document.getElementById("participantIdentifier").value.trim();
+      if(!identifier){ toast("Enter your approved email or username first", "err"); return; }
+      try{
+        const participant = (await approvedParticipants()).find(p=>participantMatch(p, identifier));
+        if(!participant || !participant.email) throw new Error("You are not on the approved participant list");
+        await auth.sendPasswordResetEmail(participant.email);
+        toast("Password reset email sent", "");
+      }catch(err){
+        console.error("password reset failed", err);
+        toast(err.code === "auth/user-not-found" ? "No Firebase account exists yet. Use Sign in / create account first." : (err.message || "Could not send reset email"), "err");
+      }
+    });
+  }
+  function showParticipantSignup(){
+    setActiveTab("participant");
+    document.getElementById("onboardBody").innerHTML = `
+      <div class="tab-switch" style="margin-bottom:16px;">
+        <button id="participantSignInTab">Sign in</button>
+        <button class="active" id="participantSignUpTab">Sign up</button>
+      </div>
+      <div class="field"><label>Approved email</label><input type="email" id="participantIdentifier" autocomplete="email"></div>
+      <div class="field"><label>Choose a username</label><input type="text" id="participantChosenUsername" placeholder="e.g. chloe" autocomplete="username"></div>
+      <div class="field"><label>Create password</label><div style="display:flex;gap:8px;"><input type="password" id="participantPassword" autocomplete="new-password" style="flex:1;"><button type="button" class="btn btn-ghost" id="toggleParticipantPassword">Show</button></div></div>
+      <button class="btn btn-primary btn-block" id="participantSignupBtn">Create account</button>
+      <p class="page-sub" style="margin-top:12px;">Your email must be on the approved participant list.</p>
+    `;
+    document.getElementById("participantSignInTab").addEventListener("click", showParticipantLogin);
+    document.getElementById("participantSignUpTab").addEventListener("click", showParticipantSignup);
+    document.getElementById("participantSignupBtn").addEventListener("click", async ()=>{
+      const identifier = document.getElementById("participantIdentifier").value.trim();
+      const username = document.getElementById("participantChosenUsername").value.trim();
+      const password = document.getElementById("participantPassword").value;
+      if(!identifier || !username || password.length<6){ toast("Enter your approved email, username, and a password of at least 6 characters", "err"); return; }
+      try{ await signInApprovedParticipant(identifier, password, username, true); }
+      catch(err){ console.error("participant sign-up failed", err); toast(err.message || "Could not create account", "err"); }
+    });
+    document.getElementById("toggleParticipantPassword").addEventListener("click", ()=>{
+      const input = document.getElementById("participantPassword");
+      const button = document.getElementById("toggleParticipantPassword");
+      const visible = input.type === "text";
+      input.type = visible ? "password" : "text";
+      button.textContent = visible ? "Show" : "Hide";
     });
   }
   function showOnboardExisting(){
     setActiveTab("existing");
+    if(TEMPORARY_LEGACY_WALLET_LOGIN){
+      document.getElementById("onboardBody").innerHTML = `
+        <div class="field"><label>Wallet ID</label><input type="text" id="existingId" placeholder="e.g. HVN-8842" style="text-transform:uppercase;"></div>
+        <button class="btn btn-primary btn-block" id="loginWalletBtn">Log in temporarily</button>
+        <p class="page-sub" style="margin-top:12px;">Temporary recovery mode is enabled while the participant list is being prepared.</p>
+      `;
+      document.getElementById("loginWalletBtn").addEventListener("click", async ()=>{
+        const id = document.getElementById("existingId").value.trim().toUpperCase();
+        const user = await getJSON("users:"+id, true);
+        if(!user){ toast("Wallet not found", "err"); return; }
+        await loadUser(id);
+        await refreshShared();
+        refreshHeader();
+        goTo("home");
+      });
+      return;
+    }
     document.getElementById("onboardBody").innerHTML = `
-      <div class="field"><label>Wallet ID</label><input type="text" id="existingId" placeholder="e.g. HVN-8842" style="text-transform:uppercase;"></div>
-      <button class="btn btn-primary btn-block" id="loginWalletBtn">Log in</button>
+      <div class="field"><label>Organizer email</label><input type="email" id="walletOrganizerEmail" autocomplete="username"></div>
+      <div class="field"><label>Organizer password</label><input type="password" id="walletOrganizerPassword" autocomplete="current-password"></div>
+      <div class="field"><label>Wallet ID to access</label><input type="text" id="existingId" placeholder="e.g. HVN-8842" style="text-transform:uppercase;"></div>
+      <button class="btn btn-primary btn-block" id="loginWalletBtn">Organizer access</button>
+      <p class="page-sub" style="margin-top:12px;">Wallet ID access is restricted to organizers. Use your own organizer Firebase account.</p>
     `;
     document.getElementById("loginWalletBtn").addEventListener("click", async ()=>{
+      const email = document.getElementById("walletOrganizerEmail").value.trim();
+      const password = document.getElementById("walletOrganizerPassword").value;
       const id = document.getElementById("existingId").value.trim().toUpperCase();
-      const user = await getJSON("users:"+id, true);
-      if(!user){ toast("Wallet not found", "err"); return; }
-      await loadUser(id);
-      await refreshShared();
-      refreshHeader();
-      goTo("home");
+      if(!auth){ toast("Firebase Authentication is not enabled", "err"); return; }
+      if(!email || !password || !id){ toast("Enter organizer email, password, and wallet ID", "err"); return; }
+      try{
+        const credential = await auth.signInWithEmailAndPassword(email, password);
+        const organizers = await allUsers();
+        const organizer = organizers.find(user=>user.authUid===credential.user.uid);
+        const approvedOrganizer = (await approvedParticipants()).find(participant =>
+          String(participant.email || "").toLowerCase()===email.toLowerCase() &&
+          organizerWalletAllowed(participant, id)
+        );
+        if((!organizer || !organizer.isAdmin) && !approvedOrganizer){
+          await auth.signOut();
+          throw new Error("This Firebase account does not have organizer access");
+        }
+        if(approvedOrganizer && !organizerWalletAllowed(approvedOrganizer, id)){
+          await auth.signOut();
+          throw new Error("This wallet is not assigned to this organizer");
+        }
+        const target = await getJSON("users:"+id, true);
+        if(!target) throw new Error("Wallet not found");
+        await loadUser(id);
+        await refreshShared();
+        refreshHeader();
+        goTo("home");
+      }catch(err){
+        console.error("organizer wallet access failed", err);
+        toast(err.message || "Could not access wallet", "err");
+      }
     });
   }
 }
+
+// Remove older app-shell caches so a previously open admin tab cannot keep
+// rendering an outdated quest modal after a deployment.
+function clearStaleAppShell(){
+  if(!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.getRegistrations().then(registrations=>{
+    registrations.forEach(reg=>reg.unregister());
+  }).catch(err=>console.warn("Could not clear old service worker:", err));
+  if("caches" in window){
+    caches.keys().then(names=>{
+      names.filter(name=>name.indexOf("havenpay-")===0).forEach(name=>caches.delete(name));
+    }).catch(err=>console.warn("Could not clear old app cache:", err));
+  }
+}
+
+clearStaleAppShell();
 
 // Boot
 async function boot(){
@@ -2971,8 +3894,30 @@ async function boot(){
   await refreshShared();
   let uid = null;
   try{ uid = await getJSON("me:userId", false); }catch(e){}
-  if(uid && typeof uid === "string" && uid.length){
-    await loadUser(uid);
+  let firebaseUser = null;
+  if(auth){
+    firebaseUser = await new Promise(resolve=>{
+      let unsubscribe = ()=>{};
+      unsubscribe = auth.onAuthStateChanged(user=>{
+        unsubscribe();
+        resolve(user);
+      }, err=>{
+        console.error("Firebase Auth state check failed", err);
+        unsubscribe();
+        resolve(null);
+      });
+    });
+  }
+  if(uid && typeof uid === "string" && uid.length && (firebaseUser || TEMPORARY_LEGACY_WALLET_LOGIN)){
+    const savedUser = await getJSON("users:"+uid, true);
+    const authUser = firebaseUser ? (await allUsers()).find(user=>user.authUid===firebaseUser.uid) : null;
+    if(savedUser && TEMPORARY_LEGACY_WALLET_LOGIN){
+      await loadUser(uid);
+    }else if(savedUser && authUser && (savedUser.authUid===firebaseUser.uid || authUser.isAdmin)){
+      await loadUser(uid);
+    }else{
+      await setJSON("me:userId", "", false);
+    }
   }
   document.getElementById("headerAvatarBtn").addEventListener("click", ()=>{ if(ME) goTo("profile"); });
   if(ME){
@@ -3003,6 +3948,10 @@ function initFirebaseOrShowSetup(){
   try{
     firebase.initializeApp(FIREBASE_CONFIG);
     db = firebase.firestore();
+    auth = firebase.auth();
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(err=>{
+      console.warn("Firebase Auth persistence not enabled:", err.code || err.message);
+    });
     try{
       db.enablePersistence({synchronizeTabs:true}).catch(err=>{
         console.warn("Firestore offline cache not enabled:", err.code);

@@ -230,12 +230,24 @@
   .tx-amt.in{color:var(--good);}
   .tx-amt.out{color:var(--ink-dim);}
   .empty-note{color:var(--ink-faint); font-size:12.5px; text-align:center; padding:20px 10px; font-family:var(--font-num); letter-spacing:.02em;}
+  .quest-filters{display:flex; gap:7px; overflow-x:auto; padding:2px 0 12px; scrollbar-width:none;}
+  .quest-filter{border:1px solid var(--border); border-radius:999px; background:var(--surface-2); color:var(--ink-dim); padding:7px 12px; font-size:11px; font-weight:700; white-space:nowrap;}
+  .quest-filter.active{background:var(--accent); border-color:var(--accent); color:var(--on-accent);}
+  .quest-type{display:inline-block; margin-left:4px; padding:3px 6px; border-radius:999px; background:var(--surface-2); color:var(--ink-faint); font-size:9px; font-weight:700; text-transform:uppercase; vertical-align:middle;}
 
   /* shop */
   .shop-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:4px;}
   .shop-item{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 12px; display:flex; flex-direction:column; gap:8px;}
   .shop-emoji{width:40px; height:40px; border-radius:11px; background:var(--surface-2); border:1px solid var(--border-soft); display:flex; align-items:center; justify-content:center; font-size:19px;}
   .shop-item h4{font-size:13.5px; margin:0; font-weight:700; line-height:1.25;}
+  .shop-filters{display:flex; gap:7px; overflow-x:auto; padding:2px 0 12px; scrollbar-width:none;}
+  .shop-filter{border:1px solid var(--border); border-radius:999px; background:var(--surface-2); color:var(--ink-dim); padding:7px 12px; font-size:11px; font-weight:700; white-space:nowrap;}
+  .shop-filter.active{background:var(--accent); border-color:var(--accent); color:var(--on-accent);}
+  .shop-tags{display:flex; flex-wrap:wrap; gap:4px;}
+  .shop-tags span,.shop-tag-admin span{background:var(--surface-2); border:1px solid var(--border-soft); border-radius:999px; color:var(--ink-dim); font-size:10px; padding:3px 7px;}
+  .shop-tag-admin{display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;}
+  .shop-tag-admin span{display:inline-flex; align-items:center; gap:5px;}
+  .shop-tag-admin button{border:0; background:none; color:var(--ink-faint); font-size:15px; line-height:1; padding:0; cursor:pointer;}
   .shop-item .desc{font-size:11px; color:var(--ink-dim); line-height:1.4; min-height:28px;}
   .shop-item .row{display:flex; justify-content:space-between; align-items:center; margin-top:2px;}
   .price{font-family:var(--font-num); color:var(--gold); font-weight:700; font-size:13px;}
@@ -245,6 +257,11 @@
     background:var(--accent); color:var(--on-accent);
   }
   .buy-btn:disabled{background:var(--surface-3); color:var(--ink-faint);}
+  .emoji-picker{display:grid; grid-template-columns:repeat(10,1fr); gap:4px; max-height:150px; overflow-y:auto; margin-top:7px; padding:5px; background:var(--surface-2); border:1px solid var(--border); border-radius:10px;}
+  .emoji-picker button{border:0; background:transparent; border-radius:7px; font-size:20px; padding:5px 1px; cursor:pointer;}
+  .emoji-picker button:hover{background:var(--surface-3);}
+  .item-tag-choices{display:flex; flex-wrap:wrap; gap:8px;}
+  .item-tag-choices label{font-size:12px; color:var(--ink-dim); background:var(--surface-2); border:1px solid var(--border); border-radius:999px; padding:7px 9px;}
 
   /* scan */
   .scan-wrap{display:flex; flex-direction:column; align-items:center; margin-top:6px;}
@@ -271,11 +288,11 @@
   .manual-entry h4{margin:0 0 10px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-dim);}
   .manual-row{display:flex; gap:8px;}
 
-  input[type=text], input[type=number], input[type=datetime-local], select, textarea{
+  input[type=text], input[type=email], input[type=password], input[type=number], input[type=datetime-local], select, textarea{
     width:100%; background:var(--surface-2); border:1px solid var(--border); color:var(--ink);
     border-radius:10px; padding:11px 13px; font-size:13.5px; font-family:inherit; outline:none;
   }
-  input[type=text]:focus, input[type=number]:focus, input[type=datetime-local]:focus, select:focus, textarea:focus{border-color:var(--accent);}
+  input[type=text]:focus, input[type=email]:focus, input[type=password]:focus, input[type=number]:focus, input[type=datetime-local]:focus, select:focus, textarea:focus{border-color:var(--accent);}
   .btn{border:none; border-radius:12px; padding:12px 16px; font-weight:700; font-size:13.5px;}
   .btn-primary{background:var(--accent); color:var(--on-accent);}
   .btn-ghost{background:var(--surface-2); color:var(--ink); border:1px solid var(--border);}
@@ -446,6 +463,8 @@
   .announcement-icon{font-size:15px; flex-shrink:0; margin-top:1px;}
   .announcement-text{flex:1; font-size:12.5px; color:var(--ink); line-height:1.4; font-weight:600;}
   .announcement-dismiss{background:none; border:none; color:var(--ink-faint); font-size:13px; padding:2px; flex-shrink:0; cursor:pointer; line-height:1;}
+
+  input[type=checkbox]{accent-color:var(--accent);}
 
   /* ---------- desktop dashboard layout ----------
      Placed last on purpose: these overrides share selectors (#statusbar, #appheader,

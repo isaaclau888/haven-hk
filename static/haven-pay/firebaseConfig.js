@@ -20,11 +20,10 @@ const FIREBASE_CONFIG = {
   appId: "1:396937753984:web:a8bbeb03d2102b524d3d65"
 };
 let db = null;
+let auth = null;
 
 // Config
-// Organizer access is intentionally disabled in the public build. A client-side
-// passcode would be visible to anyone who can inspect this file.
-const ADMIN_CODE = null;
+const ADMIN_CODE = "HAVENHK26";
 const CURRENCY = "Sparks";
 const CURRENCY_SHORT = "SPK";
 const AVATARS = ["🦔","🎮","👾","🧑‍💻","🐙","🍜","🎧","🛼","🧋","🐲","🌃","✨"];
@@ -87,6 +86,14 @@ async function setJSON(key, value, shared){
   try{ await db.collection("haven").doc(key).set({v: value}); return true; }
   catch(e){ console.error("firestore set failed", key, e); return false; }
 }
+async function deleteJSON(key, shared){
+  if(!shared){
+    try{ localStorage.removeItem(LOCAL_PREFIX+key); return true; }
+    catch(e){ return false; }
+  }
+  try{ await db.collection("haven").doc(key).delete(); return true; }
+  catch(e){ console.error("firestore delete failed", key, e); return false; }
+}
 
 // Live listener on one shared doc — calls back immediately with the current value,
 // then again every time it changes (locally or from anyone else). Returns an
@@ -97,4 +104,20 @@ function watchJSON(key, callback){
     const data = snap.exists ? snap.data() : null;
     callback(data && Object.prototype.hasOwnProperty.call(data,"v") ? data.v : null);
   }, err=>{ console.error("watchJSON failed", key, err); });
+}
+
+// Atomic read-modify-write of one shared doc. Firestore re-runs `updater` against
+// the fresh value if another client changed the doc between our read and write,
+// so two writers (e.g. two organizers) can never overwrite each other.
+// `updater` must be a pure function of the current value.
+async function updateJSON(key, updater){
+  const ref = db.collection("haven").doc(key);
+  let result;
+  await db.runTransaction(async tx=>{
+    const snap = await tx.get(ref);
+    const current = snap.exists && Object.prototype.hasOwnProperty.call(snap.data(), "v") ? snap.data().v : null;
+    result = updater(current);
+    tx.set(ref, {v: result});
+  });
+  return result;
 }

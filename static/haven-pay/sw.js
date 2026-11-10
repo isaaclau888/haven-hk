@@ -1,4 +1,4 @@
-const CACHE_NAME = "havenpay-v1";
+const CACHE_NAME = "havenpay-v3";
 const CORE_ASSETS = [
   "./",
   "./index.html",

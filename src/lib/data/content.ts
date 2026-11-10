@@ -209,7 +209,7 @@ export const schedule: ScheduleDay[] = [
       { time: "11:30 am", title: "Animoca Brands: Minds" },
       { time: "1:00 pm", title: "Shipping Deadline" },
       { time: "1:30 pm", title: "Lunch" },
-      { time: "2:30 pm", title: "Science Fair" },
+      { time: "2:30 pm", title: "Exhibition" },
       { time: "3:30 pm", title: "Voting" },
       { time: "4:00 pm", title: "Compile Results" },
       {
