@@ -3906,6 +3906,12 @@ clearStaleAppShell();
 // Boot
 async function boot(){
   tickClock();
+
+  // Show the login form before synchronizing shared Firestore data. The form
+  // can load independently; login actions still wait for their own live data.
+  showOnboarding();
+  hideLoadingScreen();
+
   await seedIfEmpty();
   await refreshShared();
   let uid = null;
@@ -3939,10 +3945,7 @@ async function boot(){
   if(ME){
     refreshHeader();
     goTo("home");
-  }else{
-    showOnboarding();
   }
-  hideLoadingScreen();
 }
 function hideLoadingScreen(){
   const el = document.getElementById("loadingScreen");
