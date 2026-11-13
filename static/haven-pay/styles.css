@@ -329,7 +329,7 @@
   .stat-box{flex:1; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px; text-align:center;}
   .stat-box .l{font-size:9.5px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.06em; font-weight:700; font-family:var(--font-num);}
   .stat-box .v{font-family:var(--font-display); font-weight:800; font-size:18px; margin-top:3px;}
-  .list-item{display:flex; align-items:center; justify-content:space-between; padding:13px 4px; border-bottom:1px solid var(--border-soft); font-size:13.5px;}
+  .list-item{display:flex; align-items:center; justify-content:space-between; padding:13px 4px; border:0; border-bottom:1px solid var(--border-soft); background:transparent; color:var(--ink); font:inherit; font-size:13.5px;}
   .list-item:last-child{border-bottom:none;}
   .list-item .lab{display:flex; align-items:center; gap:12px; color:var(--ink);}
   .list-item svg{width:16px; height:16px; stroke:var(--ink-dim); fill:none; stroke-width:2;}
@@ -391,6 +391,8 @@
   .admin-subnav button{flex-shrink:0; background:var(--surface); border:1px solid var(--border); color:var(--ink-dim); font-size:11.5px; font-weight:700; padding:8px 13px; border-radius:20px;}
   .admin-subnav button.active{background:var(--accent); color:var(--on-accent); border-color:var(--accent);}
   .admin-row{background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:13px; margin-bottom:8px; display:flex; align-items:center; gap:11px;}
+  .admin-row[data-sort-id]{cursor:grab;}
+  .admin-row[data-sort-id].dragging{opacity:.45; cursor:grabbing;}
   .admin-row .flex1{flex:1; min-width:0;}
   .admin-row h5{margin:0 0 2px; font-size:13px; font-weight:700;}
   .admin-row .sub{font-size:11px; color:var(--ink-faint); font-family:var(--font-num);}

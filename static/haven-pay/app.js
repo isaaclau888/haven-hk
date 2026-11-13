@@ -1175,10 +1175,10 @@ async function showScannedUserSheet(userId){
     const theirGroup = groups.find(g => g.memberIds.includes(user.id));
     if(theirGroup){ toast(user.name+" is already in a group", "err"); return; }
     const g = groups.find(x=>x.id===myGroup.id);
-    g.memberIds.push(user.id);
-    await setJSON("groups:list", groups, true);
-    closeModal();
-    toast("Added "+user.name+" to "+g.name, "");
+    if(await sendGroupInvite(g, user.id)){
+      closeModal();
+      toast("Invite sent to "+user.name, "");
+    }
   });
 }
 
@@ -1316,14 +1316,91 @@ async function allGroups(){ return (await getJSON("groups:list", true)) || []; }
 
 function myGroupOf(groups){ return groups.find(g => g.memberIds.includes(ME.id)); }
 
+async function groupInvitesFor(userId=ME.id){
+  const invites = await getJSON("group-invites:"+userId, true);
+  return Array.isArray(invites) ? invites : [];
+}
+
+async function sendGroupInvite(group, userId){
+  if(!group || !userId) return false;
+  const groups = await allGroups();
+  const current = groups.find(g=>g.id===group.id);
+  if(!current || !current.memberIds.includes(ME.id)) return false;
+  if(current.memberIds.includes(userId)){ toast("That person is already in the group", "info"); return false; }
+  const recipientGroup = groups.find(g=>g.memberIds.includes(userId));
+  if(recipientGroup){ toast("That person is already in a group", "err"); return false; }
+  const invites = await groupInvitesFor(userId);
+  if(invites.some(i=>i.groupId===group.id && i.status==="pending")){
+    toast("Invite already sent", "info");
+    return false;
+  }
+  invites.unshift({id:genId("gi",8), groupId:group.id, groupName:group.name, inviterId:ME.id, inviterName:ME.name, status:"pending", createdAt:Date.now()});
+  await setJSON("group-invites:"+userId, invites.slice(0,30), true);
+  return true;
+}
+
+async function respondToGroupInvite(inviteId, accept){
+  const invites = await groupInvitesFor();
+  const invite = invites.find(i=>i.id===inviteId && i.status==="pending");
+  if(!invite) return;
+  if(accept){
+    const groups = await allGroups();
+    if(myGroupOf(groups)){ toast("You're already in a group — leave it first", "err"); return; }
+    const group = groups.find(g=>g.id===invite.groupId);
+    if(!group){ invite.status="declined"; toast("That group no longer exists", "err"); }
+    else if(group.memberIds.includes(ME.id)){ invite.status="accepted"; }
+    else{
+      group.memberIds.push(ME.id);
+      invite.status="accepted";
+      await setJSON("groups:list", groups, true);
+      toast("Joined "+group.name, "");
+    }
+  }else{
+    invite.status="declined";
+    toast("Invite declined", "info");
+  }
+  await setJSON("group-invites:"+ME.id, invites.filter(i=>i.status==="pending"), true);
+  if(PAGE==="groups") loadGroupsPageBody();
+}
+
+async function deleteGroup(groupId){
+  const groups = await allGroups();
+  const group = groups.find(g=>g.id===groupId);
+  if(!group || group.ownerId!==ME.id) return;
+  await setJSON("groups:list", groups.filter(g=>g.id!==groupId), true);
+  const users = await allUsers();
+  await Promise.all(users.map(async user=>{
+    const invites = await groupInvitesFor(user.id);
+    const next = invites.filter(i=>i.groupId!==groupId);
+    if(next.length!==invites.length) await setJSON("group-invites:"+user.id, next, true);
+  }));
+  toast("Deleted "+group.name, "");
+  loadGroupsPageBody();
+}
+
 async function joinGroupByCode(code){
   const groups = await allGroups();
   if(myGroupOf(groups)){ toast("You're already in a group — leave it first", "err"); return; }
   const group = groups.find(g => g.code === code);
   if(!group){ toast("Group not found", "err"); return; }
-  group.memberIds.push(ME.id);
-  await setJSON("groups:list", groups, true);
-  toast("Joined "+group.name, "");
+  if(group.memberIds.includes(ME.id)){ toast("You're already in this group", "info"); return; }
+  const invites = await groupInvitesFor();
+  if(invites.some(i=>i.groupId===group.id && i.status==="pending")){
+    toast("Invite already pending — accept it in Groups", "info");
+    return;
+  }
+  const owner = await getJSON("users:"+group.ownerId, true);
+  invites.unshift({
+    id:genId("gi",8),
+    groupId:group.id,
+    groupName:group.name,
+    inviterId:group.ownerId,
+    inviterName:owner ? owner.name : "Group owner",
+    status:"pending",
+    createdAt:Date.now()
+  });
+  await setJSON("group-invites:"+ME.id, invites.slice(0,30), true);
+  toast("Join request sent — accept it in Groups", "info");
   if(PAGE==="groups") loadGroupsPageBody();
 }
 
@@ -1344,9 +1421,29 @@ async function loadGroupsPageBody(){
   if(!el) return;
   const groups = await allGroups();
   const myGroup = myGroupOf(groups);
+  const invites = (await groupInvitesFor()).filter(i=>i.status==="pending");
+
+  const renderInvites = () => invites.length ? `
+    <div class="section-head" style="margin-top:0;"><h3>Group invites</h3></div>
+    <div class="card" style="margin-bottom:16px;">${invites.map(i=>`
+      <div class="list-item" style="align-items:flex-start;">
+        <span class="lab" style="display:flex; flex-direction:column; align-items:flex-start; gap:3px;">
+          <strong>${i.groupName}</strong><span style="font-size:11.5px; color:var(--ink-dim);">${i.inviterName} invited you</span>
+        </span>
+        <span style="display:flex; gap:6px;">
+          <button class="btn btn-primary" data-accept-invite="${i.id}" style="padding:7px 10px;">Accept</button>
+          <button class="btn btn-ghost" data-decline-invite="${i.id}" style="padding:7px 10px;">Decline</button>
+        </span>
+      </div>`).join("")}</div>` : "";
+
+  const wireInviteActions = () => {
+    el.querySelectorAll("[data-accept-invite]").forEach(b=>b.addEventListener("click", ()=>respondToGroupInvite(b.dataset.acceptInvite, true)));
+    el.querySelectorAll("[data-decline-invite]").forEach(b=>b.addEventListener("click", ()=>respondToGroupInvite(b.dataset.declineInvite, false)));
+  };
 
   if(!myGroup){
     el.innerHTML = `
+      ${renderInvites()}
       <div style="display:flex; gap:8px; margin-bottom:16px;">
         <button class="btn btn-primary" style="flex:1;" id="newGroupBtn">+ New group</button>
         <button class="btn btn-ghost" style="flex:1;" id="joinGroupBtn">Join with code</button>
@@ -1355,6 +1452,7 @@ async function loadGroupsPageBody(){
     `;
     document.getElementById("newGroupBtn").addEventListener("click", showCreateGroupModal);
     document.getElementById("joinGroupBtn").addEventListener("click", showJoinGroupModal);
+    wireInviteActions();
     return;
   }
 
@@ -1363,6 +1461,7 @@ async function loadGroupsPageBody(){
   const total = members.reduce((s,m)=>s+(m.balance||0),0);
 
   el.innerHTML = `
+    ${renderInvites()}
     <div class="card" style="margin-bottom:16px;">
       <div style="display:flex; justify-content:space-between; align-items:flex-start;">
         <div>
@@ -1391,7 +1490,10 @@ async function loadGroupsPageBody(){
       </select></div>
       <button class="btn btn-ghost btn-block" id="groupXpBtn">Give SPK</button>
     </div>
-    <div class="section-head" style="margin-top:22px;"><h3>Members</h3></div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:22px;">
+      <h3 style="margin:0;">Members</h3>
+      <button class="btn btn-primary" id="inviteGroupMemberBtn" style="padding:7px 10px;">Invite</button>
+    </div>
     <div class="card" style="margin-bottom:16px;">
       ${members.map(m=>`
         <div class="list-item">
@@ -1402,13 +1504,18 @@ async function loadGroupsPageBody(){
               <span class="mono" style="font-size:11.5px; color:var(--accent); font-weight:700;">${m.balance} ${CURRENCY_SHORT}</span>
             </span>
           </span>
-          ${m.id!==ME.id ? `<button class="icon-btn" data-sendto="${m.id}" title="Send ${CURRENCY_SHORT}">${ICONS.send}</button>` : ''}
+          <span style="display:flex; gap:5px;">
+            ${m.id!==ME.id ? `<button class="icon-btn" data-sendto="${m.id}" title="Send ${CURRENCY_SHORT}">${ICONS.send}</button>` : ''}
+            ${myGroup.ownerId===ME.id && m.id!==ME.id ? `<button class="icon-btn" data-kick="${m.id}" title="Remove from group">${ICONS.close || "×"}</button>` : ''}
+          </span>
         </div>
       `).join("")}
     </div>
+    ${myGroup.ownerId===ME.id ? `<button class="btn btn-ghost btn-block" id="deleteGroupBtn" style="color:var(--danger); margin-bottom:8px;">Delete group</button>` : ""}
     <button class="btn btn-ghost btn-block" id="leaveGroupBtn">Leave group</button>
   `;
 
+  wireInviteActions();
   document.getElementById("groupQrBtn").addEventListener("click", ()=>{
     showModal(`
       <h3>${myGroup.name}</h3>
@@ -1422,6 +1529,19 @@ async function loadGroupsPageBody(){
   });
 
   el.querySelectorAll("[data-sendto]").forEach(b=> b.addEventListener("click", ()=> showSendModal(b.dataset.sendto)));
+  document.getElementById("inviteGroupMemberBtn").addEventListener("click", ()=>showInviteGroupMemberModal(myGroup));
+  el.querySelectorAll("[data-kick]").forEach(b=>b.addEventListener("click", async ()=>{
+    const gs = await allGroups(), g = gs.find(x=>x.id===myGroup.id);
+    if(!g || g.ownerId!==ME.id) return;
+    g.memberIds = g.memberIds.filter(id=>id!==b.dataset.kick);
+    await setJSON("groups:list", gs, true);
+    toast("Member removed", "");
+    loadGroupsPageBody();
+  }));
+  const deleteBtn = document.getElementById("deleteGroupBtn");
+  if(deleteBtn) deleteBtn.addEventListener("click", ()=>{
+    if(window.confirm("Delete "+myGroup.name+" for everyone?")) deleteGroup(myGroup.id);
+  });
 
   document.getElementById("groupXpBtn").addEventListener("click", async ()=>{
     const amount = Math.floor(Number(document.getElementById("groupXpAmount").value));
@@ -1448,14 +1568,10 @@ async function loadGroupsPageBody(){
     const gs = await allGroups();
     const g = gs.find(x=>x.id===myGroup.id);
     if(!g) return;
-    if(g.ownerId===ME.id && g.memberIds.length>1){
-      g.memberIds = g.memberIds.filter(id=>id!==ME.id);
-      g.ownerId = g.memberIds[0];
-      await setJSON("groups:list", gs, true);
-    }else if(g.ownerId===ME.id){
-      await setJSON("groups:list", gs.filter(x=>x.id!==g.id), true);
-    }else{
-      g.memberIds = g.memberIds.filter(id=>id!==ME.id);
+    g.memberIds = g.memberIds.filter(id=>id!==ME.id);
+    if(!g.memberIds.length) await setJSON("groups:list", gs.filter(x=>x.id!==g.id), true);
+    else{
+      if(g.ownerId===ME.id) g.ownerId = g.memberIds[0];
       await setJSON("groups:list", gs, true);
     }
     toast("Left "+myGroup.name, "");
@@ -1479,6 +1595,26 @@ function showJoinGroupModal(){
     closeModal();
     await joinGroupByCode(code);
   });
+}
+
+function showInviteGroupMemberModal(group){
+  showModal(`
+    <h3>Invite to ${group.name}</h3>
+    <div class="field"><label>Search by name or wallet ID</label><input type="text" id="inviteGroupSearch" placeholder="e.g. Alex or HVN-AB12"></div>
+    <div id="inviteGroupUserList" style="max-height:180px; overflow-y:auto;"></div>
+  `);
+  const listEl = document.getElementById("inviteGroupUserList");
+  async function renderList(q){
+    const groups = await allGroups();
+    const users = (await allUsers()).filter(u=>u.id!==ME.id && !group.memberIds.includes(u.id) && !groups.some(g=>g.memberIds.includes(u.id)));
+    const filtered = q ? users.filter(u=>(u.name+" "+u.id).toLowerCase().includes(q.toLowerCase())) : users;
+    listEl.innerHTML = filtered.slice(0,25).map(u=>`<button class="list-item" data-invite-uid="${u.id}" style="width:100%; border:0; color:inherit; text-align:left; cursor:pointer;"><span class="lab">${u.avatar} ${accountLabel(u)}</span><span style="color:var(--ink-faint); font-size:11px;">Invite</span></button>`).join("") || `<div class="empty-note">No available members</div>`;
+    listEl.querySelectorAll("[data-invite-uid]").forEach(b=>b.addEventListener("click", async ()=>{
+      if(await sendGroupInvite(group, b.dataset.inviteUid)){ closeModal(); toast("Invite sent", ""); }
+    }));
+  }
+  renderList("");
+  document.getElementById("inviteGroupSearch").addEventListener("input", e=>renderList(e.target.value));
 }
 
 function showCreateGroupModal(){
@@ -1517,10 +1653,11 @@ function showCreateGroupModal(){
     if(myGroupOf(groups)){ toast("You're already in a group — leave it first", "err"); closeModal(); return; }
     let code;
     do{ code = genId("",5); }while(groups.some(g=>g.code===code));
-    const memberIds = Array.from(picked); memberIds.push(ME.id);
-    groups.push({id:genId("g",5), name, code, ownerId:ME.id, memberIds, createdAt:Date.now()});
+    const group = {id:genId("g",5), name, code, ownerId:ME.id, memberIds:[ME.id], createdAt:Date.now()};
+    groups.push(group);
     await setJSON("groups:list", groups, true);
-    closeModal(); toast("Group created — share code "+code, "");
+    await Promise.all(Array.from(picked).map(userId=>sendGroupInvite(group, userId)));
+    closeModal(); toast("Group created — invites sent; share code "+code, "");
     if(PAGE==="groups") loadGroupsPageBody();
   });
 }
@@ -2866,8 +3003,8 @@ async function renderAdminGames(){
 function renderAdminQuests(){
   const body = document.getElementById("adminBody");
   if(!QUESTS.length){ body.innerHTML = `<div class="empty-note">No quests yet. Tap + to add one.</div>`; return; }
-  body.innerHTML = QUESTS.map(q=>`
-    <div class="admin-row">
+  body.innerHTML = `<div class="sub" style="margin-bottom:10px;">Drag quests to arrange their order.</div>` + QUESTS.map(q=>`
+    <div class="admin-row" data-sort-id="${q.id}" title="Drag to arrange">
       <div class="quest-badge">🎯</div>
       <div class="flex1">
         <h5>${q.title} ${!q.active?'<span style="color:var(--ink-faint); font-weight:600;">· hidden</span>':''}</h5>
@@ -2877,8 +3014,13 @@ function renderAdminQuests(){
       <button class="icon-btn" data-qr="${q.id}">${ICONS.scan}</button>
       <button class="icon-btn" data-edit="${q.id}">${ICONS.edit}</button>
       <button class="icon-btn" data-del="${q.id}">${ICONS.trash}</button>
+      <span style="display:flex; flex-direction:column; gap:3px;">
+        <button class="icon-btn" data-move-id="${q.id}" data-move="-1" aria-label="Move quest up" style="width:26px;height:20px;padding:0;">▲</button>
+        <button class="icon-btn" data-move-id="${q.id}" data-move="1" aria-label="Move quest down" style="width:26px;height:20px;padding:0;">▼</button>
+      </span>
     </div>
   `).join("");
+  enableAdminOrdering(body, "[data-sort-id]", QUESTS, "quests:list", renderAdminQuests);
   body.querySelectorAll("[data-who]").forEach(b=> b.addEventListener("click", ()=>showQuestCompletionsModal(b.dataset.who)));
   body.querySelectorAll("[data-qr]").forEach(b=> b.addEventListener("click", ()=>showQuestQR(b.dataset.qr)));
   body.querySelectorAll("[data-edit]").forEach(b=> b.addEventListener("click", ()=>showAddQuestModal(b.dataset.edit)));
@@ -3060,6 +3202,54 @@ async function deleteQuest(id){
   renderAdminQuests(); toast("Quest removed", "");
 }
 
+function enableAdminOrdering(body, selector, items, storageKey, rerender){
+  let draggedId = null;
+  body.querySelectorAll("[data-move]").forEach(button=>{
+    button.addEventListener("click", async e=>{
+      e.stopPropagation();
+      const index = items.findIndex(item=>item.id===button.dataset.moveId);
+      const nextIndex = index + Number(button.dataset.move);
+      if(index<0 || nextIndex<0 || nextIndex>=items.length) return;
+      const [moved] = items.splice(index, 1);
+      items.splice(nextIndex, 0, moved);
+      await setJSON(storageKey, items, true);
+      toast("Order saved", "");
+      rerender();
+    });
+  });
+  body.querySelectorAll(selector).forEach(row=>{
+    row.draggable = true;
+    row.addEventListener("dragstart", e=>{
+      draggedId = row.dataset.sortId;
+      row.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", draggedId);
+    });
+    row.addEventListener("dragover", e=>{
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    });
+    row.addEventListener("drop", async e=>{
+      e.preventDefault();
+      const fromId = draggedId || e.dataTransfer.getData("text/plain");
+      const toId = row.dataset.sortId;
+      if(!fromId || fromId===toId) return;
+      const fromIndex = items.findIndex(item=>item.id===fromId);
+      const toIndex = items.findIndex(item=>item.id===toId);
+      if(fromIndex<0 || toIndex<0) return;
+      const [moved] = items.splice(fromIndex, 1);
+      items.splice(toIndex, 0, moved);
+      await setJSON(storageKey, items, true);
+      toast("Order saved", "");
+      rerender();
+    });
+    row.addEventListener("dragend", ()=>{
+      draggedId = null;
+      row.classList.remove("dragging");
+    });
+  });
+}
+
 function renderAdminShop(){
   const body = document.getElementById("adminBody");
   const tags = SHOP_TAGS.slice().sort();
@@ -3073,8 +3263,8 @@ function renderAdminShop(){
       </div>
       <div class="shop-tag-admin">${tags.map(tag=>`<span>${tag}<button type="button" data-remove-tag="${tag}" aria-label="Remove ${tag}">×</button></span>`).join("") || `<span class="sub">No tags yet</span>`}</div>
     </div>
-    ${SHOP.length ? SHOP.map(i=>`
-    <div class="admin-row">
+    ${SHOP.length ? `<div class="sub" style="margin-bottom:10px;">Drag items to arrange their order.</div>` + SHOP.map(i=>`
+    <div class="admin-row" data-sort-id="${i.id}" title="Drag to arrange">
       <div class="shop-emoji" style="width:38px;height:38px;">${i.emoji}</div>
       <div class="flex1">
         <h5>${i.name}</h5>
@@ -3082,9 +3272,14 @@ function renderAdminShop(){
       </div>
       <button class="icon-btn" data-edit="${i.id}">${ICONS.edit}</button>
       <button class="icon-btn" data-del="${i.id}">${ICONS.trash}</button>
+      <span style="display:flex; flex-direction:column; gap:3px;">
+        <button class="icon-btn" data-move-id="${i.id}" data-move="-1" aria-label="Move item up" style="width:26px;height:20px;padding:0;">▲</button>
+        <button class="icon-btn" data-move-id="${i.id}" data-move="1" aria-label="Move item down" style="width:26px;height:20px;padding:0;">▼</button>
+      </span>
     </div>
     `).join("") : `<div class="empty-note">No items yet. Tap + to add one.</div>`}
   `;
+  enableAdminOrdering(body, "[data-sort-id]", SHOP, "shop:items", renderAdminShop);
   document.getElementById("addShopTag").addEventListener("click", async ()=>{
     const input = document.getElementById("newShopTag");
     const tag = input.value.trim().toLowerCase().replace(/\s+/g," ");
