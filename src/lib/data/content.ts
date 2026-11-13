@@ -317,6 +317,12 @@ export const supporters: Sponsor[] = [
     tier: "Gold",
   },
   {
+    name: "Kadmium",
+    href: "https://www.kadmium.dev/",
+    image: "/images/sponsors/logos/Kadmium.png",
+    tier: "Gold",
+  },
+  {
     name: "PCBWay",
     href: "https://www.pcbway.com/",
     image: "/images/sponsors/logos/PCBWay.jpg",
@@ -326,7 +332,7 @@ export const supporters: Sponsor[] = [
     name: "CodeCrafters",
     href: "https://codecrafters.io/",
     image: "/images/sponsors/logos/CodeCrafters.png",
-    tier: "Silver",
+    tier: "Gold",
   },
   {
     name: ".xyz Domain Names",
