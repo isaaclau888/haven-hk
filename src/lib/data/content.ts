@@ -205,7 +205,7 @@ export const schedule: ScheduleDay[] = [
     day: "Nov 15th",
     items: [
       { time: "9:30 am", title: "Doors Open" },
-      { time: "10:30 am", title: "Project Showcase" },
+      { time: "10:30 am", title: "Progress Showcase" },
       { time: "11:30 am", title: "Animoca Brands: Minds" },
       { time: "1:00 pm", title: "Shipping Deadline" },
       { time: "1:30 pm", title: "Lunch" },
